@@ -3,6 +3,7 @@ import './styles.css';
 import { applyScheme, setAfterburnerIntensity } from './jet.js';
 import { loadPhotoEnvironment } from './environment.js';
 import { loadJetModel, applyGltfLivery } from './loadJet.js';
+import { getNozzleExitWorld } from './aircraftSystems.js';
 import { createComposer } from './postProcessing.js';
 
 const canvas = document.getElementById('scene');
@@ -15,6 +16,7 @@ const throttleInput = document.getElementById('throttle');
 const throttleVal = document.getElementById('throttle-val');
 const tooltip = document.getElementById('hotspot-tooltip');
 const radarCanvas = document.getElementById('radar-canvas');
+const gearToggle = document.getElementById('gear-toggle');
 
 const mouse = { x: 0, y: 0, nx: 0, ny: 0, inside: false };
 const targetRot = { x: 0.08, y: 0.35, z: 0 };
@@ -95,8 +97,12 @@ async function init() {
     raptor = jet.model;
     afterburner = jet.afterburner;
     jetIsGltf = jet.isGltf;
-    gearController = jet.gear;
+    gearController = jet.gear || raptor.userData.gear;
     jetGroup.add(raptor);
+
+    if (gearToggle && gearController) {
+      gearToggle.checked = gearController.isDown;
+    }
 
     if (jetIsGltf) {
       gltfMaterials = raptor.userData.materials;
@@ -142,7 +148,12 @@ function createExhaustParticles() {
 }
 
 function getWorldExhaustPoints() {
-  if (!raptor || !exhaustOrigin.points.length) return [];
+  if (!raptor) return [];
+  const dir = raptor.userData.exhaustDir;
+  if (raptor.userData.nozzleMeshes?.length && dir) {
+    return raptor.userData.nozzleMeshes.map((mesh) => getNozzleExitWorld(mesh, dir));
+  }
+  if (!exhaustOrigin.points.length) return [];
   return exhaustOrigin.points.map((local) => {
     const w = local.clone();
     raptor.localToWorld(w);
@@ -286,10 +297,10 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-const gearToggle = document.getElementById('gear-toggle');
 if (gearToggle) {
   gearToggle.addEventListener('change', () => {
-    if (gearController) gearController.setGearDown(gearToggle.checked);
+    if (!gearController) return;
+    gearController.setGearDown(gearToggle.checked);
   });
 }
 
@@ -452,8 +463,8 @@ function animate() {
   if (raptor) {
     jetGroup.rotation.set(currentRot.x, currentRot.y, currentRot.z);
     jetGroup.position.y = Math.sin(t * 0.7) * 0.04;
-    gearController?.update(dt);
   }
+  gearController?.update(dt);
 
   const ab = throttle + (burstUntil > performance.now() ? 0.7 : 0);
   if (afterburner) setAfterburnerIntensity(afterburner, Math.min(1, ab));

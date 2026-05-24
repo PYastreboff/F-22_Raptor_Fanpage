@@ -3,8 +3,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createRaptor, createAfterburnerGlow } from './jet.js';
 import {
   createGearController,
-  findExhaustPorts,
-  attachAfterburnerToPorts,
+  attachAfterburnerToThrusters,
+  resolveJetAxes,
 } from './aircraftSystems.js';
 
 const MODEL_URL = `${import.meta.env.BASE_URL}f22_raptor/scene.gltf`;
@@ -29,9 +29,13 @@ export function loadJetModel(envMap) {
 
         model.updateMatrixWorld(true);
 
-        const gear = createGearController(gltf, model);
-        const { ports, exhaustDir } = findExhaustPorts(model);
-        const afterburner = attachAfterburnerToPorts(model, ports, exhaustDir);
+        const axes = resolveJetAxes(model);
+        model.userData.axes = axes;
+
+        const gear = createGearController(gltf, model, axes.bodyCenter);
+        const afterburner = attachAfterburnerToThrusters(model, axes);
+        const ports = model.userData.enginePorts || [];
+        const exhaustDir = model.userData.exhaustDir;
 
         model.userData.isGltf = true;
         model.userData.materials = materials;

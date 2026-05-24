@@ -353,8 +353,8 @@ export function applyScheme(group, schemeName, envMap = null) {
 }
 
 export function createFlameMesh() {
-  const geo = new THREE.ConeGeometry(0.14, 1.1, 12, 1, true);
-  geo.translate(0, 0.55, 0);
+  const geo = new THREE.ConeGeometry(0.11, 0.85, 12, 1, true);
+  geo.translate(0, 0.42, 0);
   const mat = new THREE.MeshBasicMaterial({
     color: 0xff6600,
     transparent: true,
