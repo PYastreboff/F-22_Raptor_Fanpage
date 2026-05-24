@@ -67,27 +67,39 @@ let afterburner = null;
 let jetIsGltf = false;
 let exhaustOrigin = { x: -2.9, zSpread: 0.35 };
 
+function showLoadError(message) {
+  const el = document.getElementById('load-error');
+  const detail = document.getElementById('load-error-detail');
+  if (el) el.classList.add('visible');
+  if (detail && message) detail.textContent = message;
+  console.error('[F-22]', message);
+}
+
 async function init() {
-  const env = await loadPhotoEnvironment(renderer, scene);
-  envMap = env.envMap;
-  sunLight = env.sun;
-  cloudSea = env.cloudSea;
+  try {
+    const env = await loadPhotoEnvironment(renderer, scene);
+    envMap = env.envMap;
+    sunLight = env.sun;
+    cloudSea = env.cloudSea;
 
-  post = createComposer(renderer, scene, camera);
+    post = createComposer(renderer, scene, camera);
 
-  const jet = await loadJetModel(envMap);
-  raptor = jet.model;
-  afterburner = jet.afterburner;
-  jetIsGltf = jet.isGltf;
-  jetGroup.add(raptor);
+    const jet = await loadJetModel(envMap);
+    raptor = jet.model;
+    afterburner = jet.afterburner;
+    jetIsGltf = jet.isGltf;
+    jetGroup.add(raptor);
 
-  if (jetIsGltf) {
-    gltfMaterials = raptor.userData.materials;
-    const box = new THREE.Box3().setFromObject(raptor);
-    exhaustOrigin = {
-      x: box.min.x,
-      zSpread: box.getSize(new THREE.Vector3()).z * 0.09,
-    };
+    if (jetIsGltf) {
+      gltfMaterials = raptor.userData.materials;
+      const box = new THREE.Box3().setFromObject(raptor);
+      exhaustOrigin = {
+        x: box.min.x,
+        zSpread: box.getSize(new THREE.Vector3()).z * 0.09,
+      };
+    }
+  } catch (err) {
+    showLoadError(err?.message || 'Failed to initialize 3D scene.');
   }
 }
 

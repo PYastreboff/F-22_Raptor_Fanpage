@@ -3,13 +3,40 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;" />
     <title>F-22 Raptor Command</title>
+    <script>
+      (function () {
+        var path = window.location.pathname;
+        if (path && !path.endsWith('/') && !/\.[a-z0-9]+$/i.test(path)) {
+          window.location.replace(path + '/' + window.location.search + window.location.hash);
+        }
+      })();
+    </script>
+    <style>
+      html, body { margin: 0; background: #0a1520; color: #c8e6f0; }
+      #load-error {
+        display: none;
+        position: fixed; inset: 0; z-index: 9999;
+        place-content: center; padding: 2rem; text-align: center;
+        font-family: system-ui, sans-serif;
+        background: #0a1520;
+      }
+      #load-error.visible { display: grid; }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
+    <div id="load-error" role="alert">
+      <div>
+        <p><strong>F-22 Raptor Command failed to load.</strong></p>
+        <p id="load-error-detail">Check the browser console for details.</p>
+        <p style="margin-top:1rem;font-size:0.9rem;opacity:0.8">
+          GitHub Pages: enable <em>Settings → Pages → GitHub Actions</em>, then push to <code>main</code>.
+        </p>
+      </div>
+    </div>
     <div id="app">
       <canvas id="scene"></canvas>
 

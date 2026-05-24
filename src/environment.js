@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
-const HDR_URL = './hdri/sky.hdr';
+const HDR_URL = `${import.meta.env.BASE_URL}hdri/sky.hdr`;
 
 export async function loadPhotoEnvironment(renderer, scene) {
   const loader = new RGBELoader();

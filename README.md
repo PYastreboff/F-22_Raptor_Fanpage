@@ -41,18 +41,22 @@ git push -u origin main
 ### Enable Pages
 
 1. On GitHub: **Settings → Pages**
-2. **Build and deployment → Source**: choose **GitHub Actions**
-3. Push to `main` — the workflow [deploy-pages.yml](.github/workflows/deploy-pages.yml) builds and deploys automatically
+2. **Build and deployment → Source**: choose **GitHub Actions** (not “Deploy from branch” on the raw repo)
+3. Push to `main` — the workflow [deploy-pages.yml](.github/workflows/deploy-pages.yml) runs `npm run build` and publishes the `dist/` folder
 
 Your site will be live at:
 
 **https://YOUR_USER.github.io/YOUR_REPO/**
 
-The workflow sets `VITE_BASE_PATH` from the repository name, so asset and model paths work without manual config.
+### Pages looks like plain black text on white?
 
-### Repo name note
+That means the **built** CSS/JS did not load. Common causes:
 
-If you rename the repo on GitHub, the public URL path changes to match the new name. Push again to redeploy.
+- Pages source is set to a branch/folder with **source files** instead of the Actions deploy (you need the Vite `dist/` output, not `index.html` pointing at `/src/main.js`)
+- Open the site with a trailing slash: `.../YOUR_REPO/` not `.../YOUR_REPO`
+- In DevTools → Network, check that `assets/index-*.js` and `assets/index-*.css` return **200** (not 404)
+
+After fixing, push again and wait for the **Deploy to GitHub Pages** workflow to finish.
 
 ## Credits
 

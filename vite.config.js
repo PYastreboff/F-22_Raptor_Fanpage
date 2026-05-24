@@ -1,13 +1,10 @@
 import { defineConfig } from 'vite';
 import path from 'path';
 
-// GitHub Pages project sites: https://<user>.github.io/<repo>/
-// Set in CI: VITE_BASE_PATH=/<repo-name>/
-// Local / Electron: leave unset (uses relative "./")
-const base = process.env.VITE_BASE_PATH || './';
-
+// Relative base works on GitHub Pages for any repo name (project sites use a subpath).
+// import.meta.env.BASE_URL resolves asset paths in src/.
 export default defineConfig({
-  base,
+  base: './',
   root: '.',
   build: {
     outDir: 'dist',

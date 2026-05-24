@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createRaptor, createAfterburnerGlow } from './jet.js';
 
-const MODEL_URL = './f22_raptor/scene.gltf';
+const MODEL_URL = `${import.meta.env.BASE_URL}f22_raptor/scene.gltf`;
 
 const LIVERIES = {
   stealth: { tint: 0xffffff, metal: 1, rough: 1, env: 1.35 },
