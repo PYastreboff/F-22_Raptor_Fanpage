@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;" />
+    <title>F-22 Raptor Command</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene"></canvas>
+
+      <div class="hud-overlay" aria-hidden="true">
+        <div class="scanlines"></div>
+        <div class="vignette"></div>
+        <div class="corner-bracket tl"></div>
+        <div class="corner-bracket tr"></div>
+        <div class="corner-bracket bl"></div>
+        <div class="corner-bracket br"></div>
+        <div class="radar" id="radar">
+          <canvas id="radar-canvas" width="140" height="140"></canvas>
+          <span class="radar-label">TWS</span>
+        </div>
+      </div>
+
+      <header class="top-bar">
+        <div class="logo">
+          <span class="logo-accent">F-22</span>
+          <span class="logo-sub">RAPTOR COMMAND</span>
+        </div>
+        <div class="status-pills">
+          <span class="pill active" data-system="stealth">STEALTH</span>
+          <span class="pill" data-system="supercruise">SUPERCRUISE</span>
+          <span class="pill" data-system="thrust">THRUST VECTOR</span>
+        </div>
+      </header>
+
+      <aside class="spec-panel left">
+        <h2>PLATFORM</h2>
+        <dl id="spec-list">
+          <div><dt>Designation</dt><dd>F-22A Raptor</dd></div>
+          <div><dt>Role</dt><dd>Air dominance fighter</dd></div>
+          <div><dt>First flight</dt><dd>7 Sep 1997</dd></div>
+          <div><dt>Service entry</dt><dd>15 Dec 2005</dd></div>
+          <div><dt>Max speed</dt><dd class="highlight" id="stat-speed">Mach 2.25+</dd></div>
+          <div><dt>Combat radius</dt><dd>~460 nmi</dd></div>
+          <div><dt>Engines</dt><dd>2× Pratt & Whitney F119</dd></div>
+          <div><dt>Thrust (with AB)</dt><dd>~70,000 lbf total</dd></div>
+        </dl>
+      </aside>
+
+      <aside class="spec-panel right">
+        <h2>HOVER INTEL</h2>
+        <div id="hover-card" class="hover-card">
+          <p class="hover-zone" id="hover-zone">Move cursor over the aircraft</p>
+          <p class="hover-detail" id="hover-detail">
+            The 3D model tracks your mouse — bank, pitch, and roll respond in real time.
+            Explore hotspots on the airframe for subsystem details.
+          </p>
+        </div>
+        <div class="scheme-picker">
+          <span>LIVERY</span>
+          <div class="scheme-btns">
+            <button type="button" class="scheme active" data-scheme="stealth" title="Low-observable gray">Stealth</button>
+            <button type="button" class="scheme" data-scheme="arctic" title="Arctic white">Arctic</button>
+            <button type="button" class="scheme" data-scheme="aggressor" title="Aggressor blue">Aggressor</button>
+          </div>
+        </div>
+        <div class="throttle-wrap">
+          <label for="throttle">AFTERBURNER</label>
+          <input type="range" id="throttle" min="0" max="100" value="35" />
+          <span id="throttle-val">35%</span>
+        </div>
+      </aside>
+
+      <footer class="bottom-bar">
+        <div class="coords" id="coords">ALT 42,000 ft · HDG 270° · G 1.2</div>
+        <div class="hints">
+          <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> camera ·
+          <kbd>Space</kbd> afterburner burst ·
+          hover to fly
+        </div>
+        <div class="mode-badge" id="mode-badge">INTERACTIVE</div>
+      </footer>
+
+      <div id="hotspot-tooltip" class="hotspot-tooltip hidden" role="tooltip"></div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

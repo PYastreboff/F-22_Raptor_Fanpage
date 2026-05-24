@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+
+# Build output (CI builds dist for GitHub Pages)
+dist/
+
+# Electron installers
+release/
+out/
+
+# Logs & debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / local tooling
+.idea/
+*.swp
+*.swo
+.vscode/*
+!.vscode/extensions.json
+
+# Test / coverage
+coverage/
+
+# Electron / Vite cache
+.cache/
+.vite/
+*.tsbuildinfo
+
+# Installers & archives
+*.dmg
+*.exe
+*.msi
+*.AppImage
+*.deb
+*.zip
+*.7z
+
+# Optional: uncomment if you use Git LFS for the 3D assets instead
+# public/f22_raptor/

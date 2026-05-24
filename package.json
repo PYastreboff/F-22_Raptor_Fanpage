@@ -1,0 +1,34 @@
+{
+  "name": "f22-raptor-command",
+  "version": "1.0.0",
+  "description": "F-22 Raptor interactive desktop experience",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev:web": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "npm run build && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "com.f22.raptor",
+    "productName": "F-22 Raptor Command",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "electron/**/*"],
+    "mac": { "category": "public.app-category.entertainment", "target": "dmg" },
+    "win": { "target": "nsis" }
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
+    "vite": "^6.2.0",
+    "wait-on": "^8.0.2"
+  },
+  "dependencies": {
+    "three": "^0.174.0"
+  }
+}
