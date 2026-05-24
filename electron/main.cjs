@@ -4,11 +4,17 @@ const path = require('path');
 const isDev = !app.isPackaged;
 
 function createWindow() {
+  const iconPath = path.join(
+    __dirname,
+    isDev ? '../public/favicon.svg' : '../dist/favicon.svg'
+  );
+
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1024,
     minHeight: 700,
+    icon: iconPath,
     backgroundColor: '#9bb8d4',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 16, y: 16 },

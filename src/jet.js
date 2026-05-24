@@ -352,10 +352,9 @@ export function applyScheme(group, schemeName, envMap = null) {
   group.userData.materials.schemeName = schemeName;
 }
 
-export function createAfterburnerGlow() {
-  const group = new THREE.Group();
-  const geo = new THREE.ConeGeometry(0.18, 1.4, 12, 1, true);
-  geo.rotateZ(Math.PI / 2);
+export function createFlameMesh() {
+  const geo = new THREE.ConeGeometry(0.14, 1.1, 12, 1, true);
+  geo.translate(0, 0.55, 0);
   const mat = new THREE.MeshBasicMaterial({
     color: 0xff6600,
     transparent: true,
@@ -364,15 +363,16 @@ export function createAfterburnerGlow() {
     depthWrite: false,
     side: THREE.DoubleSide,
   });
+  return new THREE.Mesh(geo, mat);
+}
 
-  const left = new THREE.Mesh(geo, mat.clone());
+export function createAfterburnerGlow() {
+  const group = new THREE.Group();
+  const left = createFlameMesh();
+  const right = createFlameMesh();
   left.position.set(-3.2, 0, 0.38);
-  group.add(left);
-
-  const right = new THREE.Mesh(geo, mat.clone());
   right.position.set(-3.2, 0, -0.38);
-  group.add(right);
-
+  group.add(left, right);
   group.userData.flames = [left, right];
   return group;
 }

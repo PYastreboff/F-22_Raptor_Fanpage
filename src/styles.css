@@ -272,6 +272,48 @@ body,
   color: var(--text);
 }
 
+.weather-picker {
+  margin-bottom: 16px;
+}
+
+.weather-picker > span {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  letter-spacing: 0.25em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.weather-btns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+
+.weather {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 7px 4px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.weather:hover {
+  border-color: var(--cyan);
+  color: var(--text);
+}
+
+.weather.active {
+  background: rgba(0, 229, 255, 0.12);
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
 .scheme-picker {
   margin-bottom: 18px;
 }
@@ -343,15 +385,44 @@ body,
   color: var(--amber);
 }
 
+.gear-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.gear-option:has(input:checked) {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.gear-option input {
+  accent-color: var(--amber);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
 .bottom-bar {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
   z-index: 10;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(17.5rem, 1fr) auto minmax(8rem, 1fr);
   align-items: center;
-  justify-content: space-between;
+  gap: 16px;
   padding: 14px 28px 20px;
   background: linear-gradient(0deg, rgba(3, 5, 8, 0.92) 0%, transparent 100%);
   -webkit-app-region: drag;
@@ -368,11 +439,18 @@ body,
   font-size: 0.7rem;
   letter-spacing: 0.08em;
   color: var(--cyan-dim);
+  min-width: 17.5rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  justify-self: start;
 }
 
 .hints {
   font-size: 0.85rem;
   color: var(--muted);
+  justify-self: center;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .hints kbd {
@@ -388,12 +466,14 @@ body,
 }
 
 .mode-badge {
+  justify-self: end;
   font-family: var(--font-display);
   font-size: 0.65rem;
   letter-spacing: 0.2em;
   padding: 6px 14px;
   border: 1px solid var(--amber);
   color: var(--amber);
+  white-space: nowrap;
   animation: pulse-badge 2s ease-in-out infinite;
 }
 

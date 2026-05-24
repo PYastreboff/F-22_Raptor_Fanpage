@@ -47,9 +47,10 @@ const camera = new THREE.PerspectiveCamera(
   300
 );
 const cameraOffsets = [
-  new THREE.Vector3(0.4, 0.25, 7.2),
+  new THREE.Vector3(1.8, 0.45, 6.2),
   new THREE.Vector3(5.5, 1.1, 3.2),
   new THREE.Vector3(-5, 0.9, 4.8),
+  new THREE.Vector3(0, 0.55, -7.5),
 ];
 camera.position.copy(cameraOffsets[0]);
 
@@ -58,6 +59,7 @@ let gltfMaterials = null;
 let post = null;
 let sunLight = null;
 let cloudSea = null;
+let weatherController = null;
 
 const jetGroup = new THREE.Group();
 scene.add(jetGroup);
@@ -65,7 +67,11 @@ scene.add(jetGroup);
 let raptor = null;
 let afterburner = null;
 let jetIsGltf = false;
-let exhaustOrigin = { x: -2.9, zSpread: 0.35 };
+let exhaustOrigin = { points: [], dir: new THREE.Vector3(0, 0, -1) };
+let gearController = null;
+
+const telemetry = { alt: 42000, hdg: 270, g: 1.0 };
+let hudRefreshTimer = 0;
 
 function showLoadError(message) {
   const el = document.getElementById('load-error');
@@ -81,6 +87,7 @@ async function init() {
     envMap = env.envMap;
     sunLight = env.sun;
     cloudSea = env.cloudSea;
+    weatherController = env.weather;
 
     post = createComposer(renderer, scene, camera);
 
@@ -88,16 +95,18 @@ async function init() {
     raptor = jet.model;
     afterburner = jet.afterburner;
     jetIsGltf = jet.isGltf;
+    gearController = jet.gear;
     jetGroup.add(raptor);
 
     if (jetIsGltf) {
       gltfMaterials = raptor.userData.materials;
-      const box = new THREE.Box3().setFromObject(raptor);
-      exhaustOrigin = {
-        x: box.min.x,
-        zSpread: box.getSize(new THREE.Vector3()).z * 0.09,
-      };
     }
+
+    const ports = jet.enginePorts || [];
+    exhaustOrigin = {
+      points: ports.map((p) => p.clone()),
+      dir: jet.exhaustDir?.clone() || new THREE.Vector3(0, 0, -1),
+    };
   } catch (err) {
     showLoadError(err?.message || 'Failed to initialize 3D scene.');
   }
@@ -132,27 +141,44 @@ function createExhaustParticles() {
   return points;
 }
 
+function getWorldExhaustPoints() {
+  if (!raptor || !exhaustOrigin.points.length) return [];
+  return exhaustOrigin.points.map((local) => {
+    const w = local.clone();
+    raptor.localToWorld(w);
+    return w;
+  });
+}
+
 function updateParticles(dt) {
   const positions = particles.geometry.attributes.position.array;
   const intensity =
     Math.max(throttle, burstUntil > performance.now() ? 1 : 0) * 0.85;
   particles.material.opacity = intensity * 0.55;
 
+  const ports = getWorldExhaustPoints();
+  const dir = exhaustOrigin.dir.clone();
+  if (raptor) dir.transformDirection(raptor.matrixWorld).normalize();
+
   for (let i = 0; i < positions.length / 3; i++) {
     const v = particles.userData.velocities[i];
-    if (Math.random() < intensity * 0.35) {
-      positions[i * 3] = exhaustOrigin.x + (Math.random() - 0.5) * 0.15;
-      positions[i * 3 + 1] = (Math.random() - 0.5) * 0.12;
-      positions[i * 3 + 2] =
-        (Math.random() > 0.5 ? exhaustOrigin.zSpread : -exhaustOrigin.zSpread) +
-        (Math.random() - 0.5) * 0.08;
-      v.set(-3 - Math.random() * 5, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.25);
+    if (ports.length && Math.random() < intensity * 0.35) {
+      const port = ports[Math.floor(Math.random() * ports.length)];
+      positions[i * 3] = port.x + (Math.random() - 0.5) * 0.08;
+      positions[i * 3 + 1] = port.y + (Math.random() - 0.5) * 0.06;
+      positions[i * 3 + 2] = port.z + (Math.random() - 0.5) * 0.08;
+      v.copy(dir).multiplyScalar(3 + Math.random() * 4);
+      v.y += (Math.random() - 0.5) * 0.3;
     }
     positions[i * 3] += v.x * dt;
     positions[i * 3 + 1] += v.y * dt;
     positions[i * 3 + 2] += v.z * dt;
-    if (positions[i * 3] < exhaustOrigin.x - 7) {
-      positions[i * 3] = exhaustOrigin.x;
+    if (ports.length && v.length() > 12) {
+      const port = ports[i % ports.length];
+      positions[i * 3] = port.x;
+      positions[i * 3 + 1] = port.y;
+      positions[i * 3 + 2] = port.z;
+      v.set(0, 0, 0);
     }
   }
   particles.geometry.attributes.position.needsUpdate = true;
@@ -248,13 +274,46 @@ window.addEventListener('keydown', (e) => {
       modeBadge.textContent = 'INTERACTIVE';
     }, 1200);
   }
-  if (e.key === '1' || e.key === '2' || e.key === '3') {
-    cameraMode = parseInt(e.key, 10) - 1;
-    modeBadge.textContent = `CAM ${e.key}`;
+  if (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4') {
+    cameraMode = Math.min(parseInt(e.key, 10) - 1, cameraOffsets.length - 1);
+    modeBadge.textContent = e.key === '4' ? 'TAIL CAM' : `CAM ${e.key}`;
     setTimeout(() => {
       modeBadge.textContent = 'INTERACTIVE';
     }, 800);
   }
+  if (e.key === 'g' || e.key === 'G') {
+    toggleGear();
+  }
+});
+
+const gearToggle = document.getElementById('gear-toggle');
+if (gearToggle) {
+  gearToggle.addEventListener('change', () => {
+    if (gearController) gearController.setGearDown(gearToggle.checked);
+  });
+}
+
+function toggleGear() {
+  if (!gearController) return;
+  gearController.toggle();
+  if (gearToggle) gearToggle.checked = gearController.isDown;
+  modeBadge.textContent = gearController.isDown ? 'GEAR DOWN' : 'GEAR UP';
+  setTimeout(() => {
+    modeBadge.textContent = 'INTERACTIVE';
+  }, 900);
+}
+
+document.querySelectorAll('.weather').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.weather').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    const id = btn.dataset.weather;
+    weatherController?.setWeather(id);
+    modeBadge.textContent = btn.textContent.toUpperCase();
+    setTimeout(() => {
+      modeBadge.textContent = 'INTERACTIVE';
+    }, 900);
+  });
 });
 
 document.querySelectorAll('.scheme').forEach((btn) => {
@@ -342,6 +401,32 @@ function drawRadar() {
   ctx.fill();
 }
 
+function updateTelemetryHud(dt) {
+  const targetAlt = 40000 - currentRot.x * 14000;
+  let targetHdg = ((currentRot.y * 57.3) % 360 + 360) % 360;
+  const targetG = 1 + Math.abs(currentRot.z) * 1.4;
+
+  telemetry.alt += (targetAlt - telemetry.alt) * Math.min(1, dt * 2.5);
+
+  let hdgDelta = targetHdg - telemetry.hdg;
+  if (hdgDelta > 180) hdgDelta -= 360;
+  if (hdgDelta < -180) hdgDelta += 360;
+  telemetry.hdg += hdgDelta * Math.min(1, dt * 2.5);
+
+  telemetry.g += (targetG - telemetry.g) * Math.min(1, dt * 2.5);
+
+  hudRefreshTimer += dt;
+  if (hudRefreshTimer < 0.2) return;
+  hudRefreshTimer = 0;
+
+  const alt = Math.round(telemetry.alt);
+  const hdg = Math.round(telemetry.hdg) % 360;
+  const g = telemetry.g.toFixed(1);
+  const hdgStr = String(hdg).padStart(3, '0');
+
+  coordsEl.textContent = `ALT ${alt.toLocaleString('en-US')} ft · HDG ${hdgStr}° · G ${g}`;
+}
+
 const clock = new THREE.Clock();
 
 function animate() {
@@ -350,11 +435,11 @@ function animate() {
   const t = performance.now() * 0.001;
 
   if (mouse.inside) {
-    targetRot.y = 0.35 + mouse.nx * 0.75;
+    targetRot.y = 0.35 + mouse.nx * 1.15;
     targetRot.x = 0.06 + mouse.ny * 0.32;
-    targetRot.z = -mouse.nx * 0.18;
+    targetRot.z = -mouse.nx * 0.22;
   } else {
-    targetRot.y = 0.35 + Math.sin(t * 0.3) * 0.08;
+    targetRot.y = 0.35 + Math.sin(t * 0.3) * 0.15;
     targetRot.x = 0.06 + Math.sin(t * 0.22) * 0.04;
     targetRot.z = Math.sin(t * 0.18) * 0.03;
   }
@@ -367,7 +452,7 @@ function animate() {
   if (raptor) {
     jetGroup.rotation.set(currentRot.x, currentRot.y, currentRot.z);
     jetGroup.position.y = Math.sin(t * 0.7) * 0.04;
-    raptor.userData.mixer?.update(0);
+    gearController?.update(dt);
   }
 
   const ab = throttle + (burstUntil > performance.now() ? 0.7 : 0);
@@ -379,20 +464,22 @@ function animate() {
     new THREE.Matrix4().makeRotationY(currentRot.y * 0.12)
   );
   camera.position.lerp(camDesired, 0.05);
-  camera.lookAt(0, 0.05, 0);
+  const lookTarget = new THREE.Vector3(0, 0.05, 0);
+  if (cameraMode === 3) lookTarget.z = -0.35;
+  camera.lookAt(lookTarget);
+
+  weatherController?.update(dt);
 
   if (cloudSea) {
-    cloudSea.rotation.y += dt * 0.004;
+    const wind = cloudSea.userData.wind ?? 0.004;
+    cloudSea.rotation.y += dt * wind;
     cloudSea.position.z = Math.sin(t * 0.1) * 1.5;
   }
 
   updateParticles(dt);
   drawRadar();
 
-  const alt = Math.floor(38000 + Math.sin(t) * 4000);
-  const hdg = Math.floor(((currentRot.y * 57.3) % 360 + 360) % 360);
-  const g = (1 + Math.abs(currentRot.z) * 2).toFixed(1);
-  coordsEl.textContent = `ALT ${alt.toLocaleString()} ft · HDG ${hdg}° · G ${g}`;
+  updateTelemetryHud(dt);
 
   if (post) {
     post.composer.render();

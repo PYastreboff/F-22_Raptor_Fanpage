@@ -71,5 +71,8 @@ After fixing, push again and wait for the **Deploy to GitHub Pages** workflow to
 | Hover airframe | Hotspot intel (radar, engines, bays) |
 | `1` `2` `3` | Camera presets |
 | `Space` | Afterburner burst |
+| `4` | Tail / rear camera (nozzles & stabilizers) |
+| `G` or gear checkbox | Landing gear up / down |
+| Weather buttons | Clear, Cloudy, Overcast, Rain, Storm, Night |
 | Livery buttons | Stealth / Arctic / Aggressor paint |
 | Afterburner slider | Engine glow & particles |

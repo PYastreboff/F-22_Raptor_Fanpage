@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createRaptor, createAfterburnerGlow } from './jet.js';
+import {
+  createGearController,
+  findExhaustPorts,
+  attachAfterburnerToPorts,
+} from './aircraftSystems.js';
 
 const MODEL_URL = `${import.meta.env.BASE_URL}f22_raptor/scene.gltf`;
 
@@ -18,23 +23,29 @@ export function loadJetModel(envMap) {
       (gltf) => {
         const model = gltf.scene;
         const materials = enhanceMaterials(model, envMap);
-        setFlightPose(gltf, model);
 
         centerAndScale(model);
         orientForDisplay(model);
 
         model.updateMatrixWorld(true);
-        attachAfterburner(model);
+
+        const gear = createGearController(gltf, model);
+        const { ports, exhaustDir } = findExhaustPorts(model);
+        const afterburner = attachAfterburnerToPorts(model, ports, exhaustDir);
 
         model.userData.isGltf = true;
         model.userData.materials = materials;
         model.userData.hotspots = buildGltfHotspots();
         model.userData.livery = 'stealth';
+        model.userData.gear = gear;
 
         resolve({
           model,
-          afterburner: model.userData.afterburner,
+          afterburner,
           isGltf: true,
+          gear,
+          enginePorts: ports,
+          exhaustDir,
         });
       },
       undefined,
@@ -44,7 +55,18 @@ export function loadJetModel(envMap) {
         model.add(afterburner);
         model.userData.afterburner = afterburner;
         centerAndScale(model);
-        resolve({ model, afterburner, isGltf: false });
+        const box = new THREE.Box3().setFromObject(model);
+        resolve({
+          model,
+          afterburner,
+          isGltf: false,
+          gear: null,
+          enginePorts: [
+            new THREE.Vector3(box.min.x, 0, 0.38),
+            new THREE.Vector3(box.min.x, 0, -0.38),
+          ],
+          exhaustDir: new THREE.Vector3(-1, 0, 0),
+        });
       }
     );
   });
@@ -110,20 +132,6 @@ export function applyGltfLivery(materialRefs, schemeName, envMap) {
   }
 }
 
-function setFlightPose(gltf, model) {
-  if (!gltf.animations?.length) return;
-
-  const mixer = new THREE.AnimationMixer(model);
-  const clip = gltf.animations[gltf.animations.length - 1];
-  const action = mixer.clipAction(clip);
-  action.play();
-  action.paused = true;
-  action.time = clip.duration * 0.85;
-  mixer.update(0);
-
-  model.userData.mixer = mixer;
-}
-
 function centerAndScale(model) {
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3());
@@ -136,20 +144,7 @@ function centerAndScale(model) {
 }
 
 function orientForDisplay(model) {
-  // Same orientation as the reference GLTF viewer — nose toward camera on +Z
   model.rotation.set(0, 0, 0);
-}
-
-function attachAfterburner(model) {
-  const box = new THREE.Box3().setFromObject(model);
-  const size = box.getSize(new THREE.Vector3());
-  const afterburner = createAfterburnerGlow();
-  const spread = size.z * 0.09;
-  const tailX = box.min.x - 0.08;
-  afterburner.userData.flames[0].position.set(tailX, 0, spread);
-  afterburner.userData.flames[1].position.set(tailX, 0, -spread);
-  model.add(afterburner);
-  model.userData.afterburner = afterburner;
 }
 
 function buildGltfHotspots() {
@@ -159,7 +154,7 @@ function buildGltfHotspots() {
       label: 'AN/APG-77 AESA RADAR & COCKPIT',
       detail:
         'Helmet-mounted cueing, sensor fusion, and first-look / first-kill situational awareness.',
-      position: new THREE.Vector3(2.2, 0.35, 0),
+      position: new THREE.Vector3(0, 0.35, 2.2),
       meshNames: [],
     },
     {
@@ -167,7 +162,7 @@ function buildGltfHotspots() {
       label: 'LOW-OBSERVABLE PLANFORM',
       detail:
         'Trapezoidal wings and aligned edges reduce radar cross-section while preserving agility.',
-      position: new THREE.Vector3(0.2, 0, 2.4),
+      position: new THREE.Vector3(0, 0, 2.4),
       meshNames: [],
     },
     {
@@ -175,7 +170,7 @@ function buildGltfHotspots() {
       label: 'F119-PW-100 THRUST VECTORING',
       detail:
         'Two-dimensional nozzle vectoring enables supermaneuverability beyond conventional fighters.',
-      position: new THREE.Vector3(-2.8, 0, 0.55),
+      position: new THREE.Vector3(0, 0, -2.6),
       meshNames: [],
     },
     {
@@ -191,7 +186,7 @@ function buildGltfHotspots() {
       label: 'CANTED VERTICAL STABILIZERS',
       detail:
         'Angled tails deflect radar returns and support extreme angle-of-attack control.',
-      position: new THREE.Vector3(-2.4, 0.65, 0.9),
+      position: new THREE.Vector3(0, 0.65, -2.2),
       meshNames: [],
     },
   ];

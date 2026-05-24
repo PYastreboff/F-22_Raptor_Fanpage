@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>F-22 Raptor Command</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
     <script>
       (function () {
         var path = window.location.pathname;
@@ -88,6 +90,17 @@
             Explore hotspots on the airframe for subsystem details.
           </p>
         </div>
+        <div class="weather-picker">
+          <span>WEATHER</span>
+          <div class="weather-btns">
+            <button type="button" class="weather active" data-weather="clear">Clear</button>
+            <button type="button" class="weather" data-weather="cloudy">Cloudy</button>
+            <button type="button" class="weather" data-weather="overcast">Gray</button>
+            <button type="button" class="weather" data-weather="rain">Rain</button>
+            <button type="button" class="weather" data-weather="storm">Storm</button>
+            <button type="button" class="weather" data-weather="night">Night</button>
+          </div>
+        </div>
         <div class="scheme-picker">
           <span>LIVERY</span>
           <div class="scheme-btns">
@@ -101,14 +114,19 @@
           <input type="range" id="throttle" min="0" max="100" value="35" />
           <span id="throttle-val">35%</span>
         </div>
+        <label class="gear-option">
+          <input type="checkbox" id="gear-toggle" />
+          <span>LANDING GEAR DOWN</span>
+        </label>
       </aside>
 
       <footer class="bottom-bar">
-        <div class="coords" id="coords">ALT 42,000 ft · HDG 270° · G 1.2</div>
+        <div class="coords" id="coords">ALT 42,000 ft · HDG 270° · G 1.0</div>
         <div class="hints">
-          <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> camera ·
-          <kbd>Space</kbd> afterburner burst ·
-          hover to fly
+          <kbd>1</kbd>–<kbd>4</kbd> cameras ·
+          <kbd>G</kbd> gear ·
+          <kbd>Space</kbd> AB ·
+          hover to spin
         </div>
         <div class="mode-badge" id="mode-badge">INTERACTIVE</div>
       </footer>
