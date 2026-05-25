@@ -124,7 +124,8 @@ async function init() {
     jetGroup.add(raptor);
 
     if (gearToggle && gearController) {
-      gearToggle.checked = gearController.isDown;
+      gearController.setGearDown(false);
+      gearToggle.checked = false;
     }
     if (weaponsToggle && weaponsController) {
       weaponsToggle.checked = weaponsController.isDeployed;
