@@ -3,9 +3,12 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createRaptor, createAfterburnerGlow } from './jet.js';
 import {
   createGearController,
+  createWeaponsController,
+  createProceduralWeaponsController,
   attachAfterburnerToThrusters,
   resolveJetAxes,
 } from './aircraftSystems.js';
+import { tagMeshHotspots, buildHotspotCatalog, buildProximityZones } from './hotspots.js';
 
 const MODEL_URL = `${import.meta.env.BASE_URL}f22_raptor/scene.gltf`;
 
@@ -33,21 +36,25 @@ export function loadJetModel(envMap) {
         model.userData.axes = axes;
 
         const gear = createGearController(gltf, model, axes.bodyCenter);
+        const weapons = createWeaponsController(gltf, model, axes.bodyCenter);
         const afterburner = attachAfterburnerToThrusters(model, axes);
         const ports = model.userData.enginePorts || [];
         const exhaustDir = model.userData.exhaustDir;
 
         model.userData.isGltf = true;
         model.userData.materials = materials;
-        model.userData.hotspots = buildGltfHotspots();
+        model.userData.hotspotCatalog = tagMeshHotspots(model);
+        model.userData.proximityZones = buildProximityZones(axes);
         model.userData.livery = 'stealth';
         model.userData.gear = gear;
+        model.userData.weapons = weapons;
 
         resolve({
           model,
           afterburner,
           isGltf: true,
           gear,
+          weapons,
           enginePorts: ports,
           exhaustDir,
         });
@@ -59,12 +66,15 @@ export function loadJetModel(envMap) {
         model.add(afterburner);
         model.userData.afterburner = afterburner;
         centerAndScale(model);
+        const weapons = createProceduralWeaponsController(model);
+        model.userData.weapons = weapons;
         const box = new THREE.Box3().setFromObject(model);
         resolve({
           model,
           afterburner,
           isGltf: false,
           gear: null,
+          weapons,
           enginePorts: [
             new THREE.Vector3(box.min.x, 0, 0.38),
             new THREE.Vector3(box.min.x, 0, -0.38),
@@ -74,6 +84,23 @@ export function loadJetModel(envMap) {
       }
     );
   });
+}
+
+/** Windscreen: tinted and opaque so empty cockpit geometry does not show through. */
+function tuneCanopyGlass(mat) {
+  mat.transmission = 0;
+  mat.thickness = 0;
+  mat.transparent = false;
+  mat.opacity = 1;
+  mat.depthWrite = true;
+  mat.side = THREE.FrontSide;
+  mat.metalness = 0.15;
+  mat.roughness = 0.12;
+  mat.color.setRGB(0.06, 0.1, 0.14);
+  if (mat.specularColor) mat.specularColor.setRGB(0.35, 0.42, 0.5);
+  mat.envMapIntensity = 1.1;
+  mat.clearcoat = 0.85;
+  mat.clearcoatRoughness = 0.08;
 }
 
 function enhanceMaterials(root, envMap) {
@@ -103,6 +130,11 @@ function enhanceMaterials(root, envMap) {
 
       physical.envMap = envMap;
       physical.envMapIntensity = 1.35;
+
+      if (/^glass$/i.test(physical.name || m.name || '')) {
+        tuneCanopyGlass(physical);
+      }
+
       physical.needsUpdate = true;
 
       saved.push({
@@ -151,47 +183,3 @@ function orientForDisplay(model) {
   model.rotation.set(0, 0, 0);
 }
 
-function buildGltfHotspots() {
-  return [
-    {
-      name: 'cockpit',
-      label: 'AN/APG-77 AESA RADAR & COCKPIT',
-      detail:
-        'Helmet-mounted cueing, sensor fusion, and first-look / first-kill situational awareness.',
-      position: new THREE.Vector3(0, 0.35, 2.2),
-      meshNames: [],
-    },
-    {
-      name: 'wing',
-      label: 'LOW-OBSERVABLE PLANFORM',
-      detail:
-        'Trapezoidal wings and aligned edges reduce radar cross-section while preserving agility.',
-      position: new THREE.Vector3(0, 0, 2.4),
-      meshNames: [],
-    },
-    {
-      name: 'engine',
-      label: 'F119-PW-100 THRUST VECTORING',
-      detail:
-        'Two-dimensional nozzle vectoring enables supermaneuverability beyond conventional fighters.',
-      position: new THREE.Vector3(0, 0, -2.6),
-      meshNames: [],
-    },
-    {
-      name: 'fuselage',
-      label: 'INTERNAL WEAPONS BAY',
-      detail:
-        'Carries AIM-120 and AIM-9 internally to maintain stealth profile until engagement.',
-      position: new THREE.Vector3(0, 0, 0),
-      meshNames: [],
-    },
-    {
-      name: 'tail',
-      label: 'CANTED VERTICAL STABILIZERS',
-      detail:
-        'Angled tails deflect radar returns and support extreme angle-of-attack control.',
-      position: new THREE.Vector3(0, 0.65, -2.2),
-      meshNames: [],
-    },
-  ];
-}

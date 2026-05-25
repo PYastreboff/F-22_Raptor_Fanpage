@@ -61,12 +61,13 @@ export function createRaptor(schemeName = 'stealth', envMap = null) {
   const accentMat = mat(scheme.accent, scheme);
   const darkMat = mat(0x2a3038, scheme, { metalness: 0.7, roughness: 0.35 });
   const canopyMat = mat(scheme.canopy, scheme, {
-    metalness: 0.2,
-    roughness: 0.05,
-    transparent: true,
-    opacity: 0.88,
-    transmission: 0.15,
-    thickness: 0.5,
+    metalness: 0.18,
+    roughness: 0.1,
+    transparent: false,
+    opacity: 1,
+    transmission: 0,
+    clearcoat: 0.8,
+    clearcoatRoughness: 0.1,
   });
 
   if (envMap) {
@@ -279,7 +280,8 @@ export function createRaptor(schemeName = 'stealth', envMap = null) {
     darkMat
   );
   bayDoor.position.set(-0.1, -0.08, 0);
-  bayDoor.name = 'fuselage';
+  bayDoor.name = 'weapons-bay-door';
+  bayDoor.userData.isWeaponsDoor = true;
   group.add(bayDoor);
 
   group.scale.setScalar(0.95);
@@ -352,37 +354,62 @@ export function applyScheme(group, schemeName, envMap = null) {
   group.userData.materials.schemeName = schemeName;
 }
 
+function flameLayer(radius, height, color, opacity) {
+  const geo = new THREE.ConeGeometry(radius, height, 16, 1, true);
+  geo.translate(0, height * 0.5, 0);
+  return new THREE.Mesh(
+    geo,
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+  );
+}
+
+/** Multi-layer plume; align parent with quaternion (local +Y = exhaust). */
+export function createAfterburnerAssembly() {
+  const root = new THREE.Group();
+  const core = flameLayer(0.06, 0.35, 0xfff4a8, 0);
+  const mid = flameLayer(0.11, 0.72, 0xff8800, 0);
+  const outer = flameLayer(0.16, 1.1, 0xff4400, 0);
+  const halo = flameLayer(0.21, 1.4, 0xff2200, 0);
+  root.add(core, mid, outer, halo);
+  root.userData.flames = [core, mid, outer, halo];
+  return root;
+}
+
 export function createFlameMesh() {
-  const geo = new THREE.ConeGeometry(0.11, 0.85, 12, 1, true);
-  geo.translate(0, 0.42, 0);
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0xff6600,
-    transparent: true,
-    opacity: 0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  return new THREE.Mesh(geo, mat);
+  return createAfterburnerAssembly();
 }
 
 export function createAfterburnerGlow() {
   const group = new THREE.Group();
-  const left = createFlameMesh();
-  const right = createFlameMesh();
+  const left = createAfterburnerAssembly();
+  const right = createAfterburnerAssembly();
   left.position.set(-3.2, 0, 0.38);
   right.position.set(-3.2, 0, -0.38);
+  left.rotation.z = Math.PI / 2;
+  right.rotation.z = Math.PI / 2;
   group.add(left, right);
-  group.userData.flames = [left, right];
+  group.userData.flames = [...left.userData.flames, ...right.userData.flames];
   return group;
 }
 
 export function setAfterburnerIntensity(glowGroup, t) {
-  const intensity = Math.pow(Math.max(0, Math.min(1, t)), 1.4);
-  for (const flame of glowGroup.userData.flames) {
-    flame.material.opacity = intensity * 0.9;
-    flame.scale.set(0.6 + intensity * 1.4, 0.6 + intensity * 2.2, 0.6 + intensity * 1.4);
-    const hue = 0.08 - intensity * 0.03;
-    flame.material.color.setHSL(hue, 1, 0.45 + intensity * 0.2);
+  const intensity = Math.pow(Math.max(0, Math.min(1, t)), 1.25);
+  const flames = glowGroup.userData.flames || [];
+  for (let i = 0; i < flames.length; i++) {
+    const flame = flames[i];
+    const layer = i % 4;
+    flame.material.opacity = intensity * (0.92 - layer * 0.14);
+    const sy = 0.45 + intensity * (2.5 - layer * 0.3);
+    const sx = 0.5 + intensity * (1.15 - layer * 0.08);
+    flame.scale.set(sx, sy, sx);
+    const hue = 0.09 - intensity * 0.04 - layer * 0.007;
+    flame.material.color.setHSL(hue, 1, 0.4 + intensity * 0.24 - layer * 0.04);
   }
 }

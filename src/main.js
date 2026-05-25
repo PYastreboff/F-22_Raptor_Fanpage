@@ -3,8 +3,11 @@ import './styles.css';
 import { applyScheme, setAfterburnerIntensity } from './jet.js';
 import { loadPhotoEnvironment } from './environment.js';
 import { loadJetModel, applyGltfLivery } from './loadJet.js';
-import { getNozzleExitWorld } from './aircraftSystems.js';
 import { createComposer } from './postProcessing.js';
+import {
+  resolveHotspotFromMesh,
+  findProximityHotspot,
+} from './hotspots.js';
 
 const canvas = document.getElementById('scene');
 const hoverZone = document.getElementById('hover-zone');
@@ -17,6 +20,7 @@ const throttleVal = document.getElementById('throttle-val');
 const tooltip = document.getElementById('hotspot-tooltip');
 const radarCanvas = document.getElementById('radar-canvas');
 const gearToggle = document.getElementById('gear-toggle');
+const weaponsToggle = document.getElementById('weapons-toggle');
 
 const mouse = { x: 0, y: 0, nx: 0, ny: 0, inside: false };
 const targetRot = { x: 0.08, y: 0.35, z: 0 };
@@ -25,6 +29,10 @@ let throttle = 0.35;
 let burstUntil = 0;
 let cameraMode = 0;
 let activeHotspot = null;
+let zoom = 1;
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 2.25;
+const _exhaustWorld = new THREE.Vector3();
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
@@ -48,13 +56,16 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   300
 );
-const cameraOffsets = [
-  new THREE.Vector3(1.8, 0.45, 6.2),
-  new THREE.Vector3(5.5, 1.1, 3.2),
-  new THREE.Vector3(-5, 0.9, 4.8),
-  new THREE.Vector3(0, 0.55, -7.5),
+const CAMERA_PRESETS = [
+  { pos: new THREE.Vector3(1.8, 0.45, 6.2), look: new THREE.Vector3(0, 0.05, 0), label: 'CAM 1', followJet: true },
+  { pos: new THREE.Vector3(5.5, 1.1, 3.2), look: new THREE.Vector3(0, 0.05, 0), label: 'CAM 2', followJet: true },
+  { pos: new THREE.Vector3(-5, 0.9, 4.8), look: new THREE.Vector3(0, 0.05, 0), label: 'CAM 3', followJet: true },
+  { pos: new THREE.Vector3(0, 0.55, -7.5), look: new THREE.Vector3(0, 0.05, -0.35), label: 'TAIL CAM', followJet: true },
+  { pos: new THREE.Vector3(0, 10, 0.5), look: new THREE.Vector3(0, 0, 0), label: 'TOP VIEW', followJet: false },
+  { pos: new THREE.Vector3(0, -8.5, 0.5), look: new THREE.Vector3(0, 0, 0), label: 'BOTTOM VIEW', followJet: false },
 ];
-camera.position.copy(cameraOffsets[0]);
+const _camDesired = new THREE.Vector3();
+camera.position.copy(CAMERA_PRESETS[0].pos);
 
 let envMap = null;
 let gltfMaterials = null;
@@ -71,6 +82,7 @@ let afterburner = null;
 let jetIsGltf = false;
 let exhaustOrigin = { points: [], dir: new THREE.Vector3(0, 0, -1) };
 let gearController = null;
+let weaponsController = null;
 
 const telemetry = { alt: 42000, hdg: 270, g: 1.0 };
 let hudRefreshTimer = 0;
@@ -98,10 +110,17 @@ async function init() {
     afterburner = jet.afterburner;
     jetIsGltf = jet.isGltf;
     gearController = jet.gear || raptor.userData.gear;
+    weaponsController = jet.weapons || raptor.userData.weapons;
     jetGroup.add(raptor);
 
     if (gearToggle && gearController) {
       gearToggle.checked = gearController.isDown;
+    }
+    if (weaponsToggle && weaponsController) {
+      weaponsToggle.checked = weaponsController.isDeployed;
+      weaponsToggle.disabled = false;
+    } else if (weaponsToggle) {
+      weaponsToggle.disabled = true;
     }
 
     if (jetIsGltf) {
@@ -149,9 +168,12 @@ function createExhaustParticles() {
 
 function getWorldExhaustPoints() {
   if (!raptor) return [];
-  const dir = raptor.userData.exhaustDir;
-  if (raptor.userData.nozzleMeshes?.length && dir) {
-    return raptor.userData.nozzleMeshes.map((mesh) => getNozzleExitWorld(mesh, dir));
+  const anchors = raptor.userData.exhaustAnchors;
+  if (anchors?.length) {
+    return anchors.map((anchor) => {
+      anchor.getWorldPosition(_exhaustWorld);
+      return _exhaustWorld.clone();
+    });
   }
   if (!exhaustOrigin.points.length) return [];
   return exhaustOrigin.points.map((local) => {
@@ -213,33 +235,27 @@ function onPointerMove(e) {
     if (child.isMesh && !child.userData.isEdge) meshes.push(child);
   });
   const hits = raycaster.intersectObjects(meshes, false);
-  updateHotspot(hits[0]?.object?.name, e.clientX, e.clientY);
+  updateHotspot(hits[0]?.object, e.clientX, e.clientY);
 }
 
-function updateHotspot(meshName, x, y) {
-  if (!raptor?.userData?.hotspots) return;
-  const hotspots = raptor.userData.hotspots;
-  let found = null;
-  if (meshName) {
-    found = hotspots.find((h) => h.meshNames.includes(meshName));
-  }
-  if (!found && mouse.inside) {
-    let best = Infinity;
-    for (const h of hotspots) {
-      const p = h.position.clone();
-      jetGroup.localToWorld(p);
-      p.project(camera);
-      const dx = (p.x - mouse.nx) * window.innerWidth * 0.5;
-      const dy = (p.y - mouse.ny) * window.innerHeight * 0.5;
-      const d = Math.hypot(dx, dy);
-      if (d < 100 && d < best) {
-        best = d;
-        found = h;
-      }
-    }
+function updateHotspot(hitMesh, x, y) {
+  const catalog = raptor?.userData?.hotspotCatalog;
+  if (!catalog) return;
+
+  let found = resolveHotspotFromMesh(hitMesh, catalog);
+
+  if (!found && mouse.inside && raptor.userData.proximityZones) {
+    found = findProximityHotspot(
+      raptor.userData.proximityZones,
+      catalog,
+      mouse.nx,
+      mouse.ny,
+      camera,
+      jetGroup
+    );
   }
 
-  if (found !== activeHotspot) {
+  if ((found?.id ?? null) !== (activeHotspot?.id ?? null)) {
     activeHotspot = found;
     if (found) {
       hoverZone.textContent = found.label;
@@ -266,6 +282,21 @@ function updateHotspot(meshName, x, y) {
 }
 
 canvas.addEventListener('pointermove', onPointerMove);
+canvas.addEventListener(
+  'wheel',
+  (e) => {
+    e.preventDefault();
+    const factor = e.deltaY > 0 ? 0.9 : 1.1;
+    zoom = THREE.MathUtils.clamp(zoom * factor, ZOOM_MIN, ZOOM_MAX);
+    modeBadge.textContent = `ZOOM ${Math.round(zoom * 100)}%`;
+    clearTimeout(canvas._zoomBadgeTimer);
+    canvas._zoomBadgeTimer = setTimeout(() => {
+      modeBadge.textContent = 'INTERACTIVE';
+    }, 700);
+  },
+  { passive: false }
+);
+
 canvas.addEventListener('pointerleave', () => {
   mouse.inside = false;
   activeHotspot = null;
@@ -285,15 +316,14 @@ window.addEventListener('keydown', (e) => {
       modeBadge.textContent = 'INTERACTIVE';
     }, 1200);
   }
-  if (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4') {
-    cameraMode = Math.min(parseInt(e.key, 10) - 1, cameraOffsets.length - 1);
-    modeBadge.textContent = e.key === '4' ? 'TAIL CAM' : `CAM ${e.key}`;
-    setTimeout(() => {
-      modeBadge.textContent = 'INTERACTIVE';
-    }, 800);
+  if (e.key >= '1' && e.key <= '6') {
+    setCameraPreset(parseInt(e.key, 10) - 1);
   }
   if (e.key === 'g' || e.key === 'G') {
     toggleGear();
+  }
+  if (e.key === 'w' || e.key === 'W') {
+    toggleWeapons();
   }
 });
 
@@ -304,11 +334,37 @@ if (gearToggle) {
   });
 }
 
+if (weaponsToggle) {
+  weaponsToggle.addEventListener('change', () => {
+    if (!weaponsController) return;
+    weaponsController.setDeployed(weaponsToggle.checked);
+  });
+}
+
 function toggleGear() {
   if (!gearController) return;
   gearController.toggle();
   if (gearToggle) gearToggle.checked = gearController.isDown;
   modeBadge.textContent = gearController.isDown ? 'GEAR DOWN' : 'GEAR UP';
+  setTimeout(() => {
+    modeBadge.textContent = 'INTERACTIVE';
+  }, 900);
+}
+
+function setCameraPreset(index) {
+  cameraMode = THREE.MathUtils.clamp(index, 0, CAMERA_PRESETS.length - 1);
+  const preset = CAMERA_PRESETS[cameraMode];
+  modeBadge.textContent = preset.label;
+  setTimeout(() => {
+    modeBadge.textContent = 'INTERACTIVE';
+  }, 800);
+}
+
+function toggleWeapons() {
+  if (!weaponsController) return;
+  weaponsController.toggle();
+  if (weaponsToggle) weaponsToggle.checked = weaponsController.isDeployed;
+  modeBadge.textContent = weaponsController.isDeployed ? 'WEAPONS OUT' : 'WEAPONS STOWED';
   setTimeout(() => {
     modeBadge.textContent = 'INTERACTIVE';
   }, 900);
@@ -465,19 +521,19 @@ function animate() {
     jetGroup.position.y = Math.sin(t * 0.7) * 0.04;
   }
   gearController?.update(dt);
+  weaponsController?.update(dt);
 
   const ab = throttle + (burstUntil > performance.now() ? 0.7 : 0);
   if (afterburner) setAfterburnerIntensity(afterburner, Math.min(1, ab));
   if (post?.bloom) post.bloom.strength = 0.18 + ab * 0.2;
 
-  const camTarget = cameraOffsets[cameraMode];
-  const camDesired = camTarget.clone().applyMatrix4(
-    new THREE.Matrix4().makeRotationY(currentRot.y * 0.12)
-  );
-  camera.position.lerp(camDesired, 0.05);
-  const lookTarget = new THREE.Vector3(0, 0.05, 0);
-  if (cameraMode === 3) lookTarget.z = -0.35;
-  camera.lookAt(lookTarget);
+  const preset = CAMERA_PRESETS[cameraMode];
+  _camDesired.copy(preset.pos).multiplyScalar(zoom);
+  if (preset.followJet) {
+    _camDesired.applyMatrix4(new THREE.Matrix4().makeRotationY(currentRot.y * 0.12));
+  }
+  camera.position.lerp(_camDesired, 0.05);
+  camera.lookAt(preset.look);
 
   weatherController?.update(dt);
 

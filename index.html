@@ -4,14 +4,31 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>F-22 Raptor Command</title>
-    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="./favicon.svg" />
     <script>
       (function () {
         var path = window.location.pathname;
         if (path && !path.endsWith('/') && !/\.[a-z0-9]+$/i.test(path)) {
           window.location.replace(path + '/' + window.location.search + window.location.hash);
+          return;
         }
+        var base = path.replace(/[^/]*$/, '');
+        if (!base.endsWith('/')) base += '/';
+        var root = window.location.origin + base;
+        window.__F22_ASSET_ROOT__ = root;
+        [
+          ['icon', 'favicon.ico', 'image/x-icon'],
+          ['icon', 'favicon.svg', 'image/svg+xml'],
+          ['icon', 'favicon-32.png', 'image/png', '32x32'],
+          ['icon', 'favicon-16.png', 'image/png', '16x16'],
+          ['apple-touch-icon', 'apple-touch-icon.png', 'image/png'],
+        ].forEach(function (args) {
+          var link = document.createElement('link');
+          link.rel = args[0];
+          link.href = root + args[1];
+          if (args[2]) link.type = args[2];
+          if (args[3]) link.sizes = args[3];
+          document.head.appendChild(link);
+        });
       })();
     </script>
     <style>
@@ -115,17 +132,23 @@
           <input type="range" id="throttle" min="0" max="100" value="35" />
           <span id="throttle-val">35%</span>
         </div>
-        <label class="gear-option">
+        <label class="toggle-option">
           <input type="checkbox" id="gear-toggle" />
           <span>LANDING GEAR DOWN</span>
+        </label>
+        <label class="toggle-option weapons-option">
+          <input type="checkbox" id="weapons-toggle" />
+          <span>WEAPONS BAY OPEN</span>
         </label>
       </aside>
 
       <footer class="bottom-bar">
         <div class="coords" id="coords">ALT 42,000 ft · HDG 270° · G 1.0</div>
         <div class="hints">
-          <kbd>1</kbd>–<kbd>4</kbd> cameras ·
+          <kbd>1</kbd>–<kbd>6</kbd> cameras ·
+          scroll zoom ·
           <kbd>G</kbd> gear ·
+          <kbd>W</kbd> weapons ·
           <kbd>Space</kbd> AB ·
           hover to spin
         </div>

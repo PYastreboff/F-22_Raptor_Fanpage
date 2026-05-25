@@ -76,7 +76,7 @@ If you still see `src="/src/main.js"`, Pages is serving **source** files — the
 |-------|--------|
 | Mouse over jet | Bank, pitch, roll toward cursor |
 | Hover airframe | Hotspot intel (radar, engines, bays) |
-| `1` `2` `3` `4` | Camera presets (`4` = tail / nozzle view) |
+| `1`–`6` | Camera presets (`4` tail, `5` top, `6` bottom) |
 | `Space` | Afterburner burst |
 | `G` or gear checkbox | Landing gear up / down |
 | Weather buttons | Clear, Cloudy, Overcast, Rain, Storm, Night |
