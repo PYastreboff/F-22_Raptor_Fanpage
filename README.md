@@ -1,6 +1,10 @@
 # F-22 Raptor Command
 
-Interactive 3D F-22 — hover to maneuver, afterburner effects, radar HUD, and livery switching. Runs as a **desktop app** (Electron) or in the **browser** (GitHub Pages).
+Interactive 3D F-22 — hover to maneuver, afterburner effects, radar HUD, weather, and livery switching. Runs as a **desktop app** (Electron) or in the **browser**.
+
+## Live demo
+
+**https://pyastreboff.github.io/F-22_Raptor_Fanpage/**
 
 ## Run locally
 
@@ -15,6 +19,13 @@ Browser only (no Electron window):
 npm run dev:web
 ```
 
+Production build preview:
+
+```bash
+npm run build
+npm run preview
+```
+
 ## Desktop build
 
 ```bash
@@ -22,41 +33,37 @@ npm start            # build + launch Electron
 npm run dist         # macOS .dmg / Windows installer → release/
 ```
 
-## GitHub & GitHub Pages
+## GitHub Pages deploy
 
-### First-time push
+This repo ships a workflow that builds with Vite and publishes the **`dist/`** folder (bundled JS/CSS + `public/` assets). The live site must **not** serve raw source from the repo root.
 
-```bash
-cd "/Users/peter/Downloads/f22 fanpage"
-git init
-git add .
-git commit -m "Initial commit: F-22 Raptor Command"
-git branch -M main
-git remote add origin https://github.com/YOUR_USER/YOUR_REPO.git
-git push -u origin main
+### One-time setup (required if the site is only plain text)
+
+1. Open **https://github.com/PYastreboff/F-22_Raptor_Fanpage/settings/pages**
+2. Under **Build and deployment → Source**, choose **GitHub Actions** (not “Deploy from a branch” with `/` or `/docs` on `main`).
+3. Push to `main` and wait for the [**Deploy to GitHub Pages**](.github/workflows/deploy-pages.yml) workflow to finish (green check).
+
+The workflow also updates the **`gh-pages`** branch. If you prefer branch deploy instead of Actions, set Source to **branch `gh-pages`** / **/ (root)**.
+
+### How to tell it is fixed
+
+View page source on the live URL. You should see:
+
+```html
+<script type="module" crossorigin src="./assets/index-xxxxx.js"></script>
 ```
 
+If you still see `src="/src/main.js"`, Pages is serving **source** files — the 3D app cannot load (HUD shows as unstyled text). Switch the Pages source as above and redeploy.
+
+### Troubleshooting
+
+| Symptom | Fix |
+|--------|-----|
+| Plain text HUD, no jet / dark canvas | Pages source must be **GitHub Actions** or **`gh-pages`** branch, not `main` root |
+| `assets/index-*.js` 404 in Network tab | Open the site with a trailing slash: `.../F-22_Raptor_Fanpage/` |
+| “Failed to load” overlay | Check console; confirm `f22_raptor/` and `hdri/` exist under the deployed site |
+
 `node_modules/`, `dist/`, and `release/` are gitignored — only source and `public/` assets are committed (~70MB for the 3D model textures).
-
-### Enable Pages
-
-1. On GitHub: **Settings → Pages**
-2. **Build and deployment → Source**: choose **GitHub Actions** (not “Deploy from branch” on the raw repo)
-3. Push to `main` — the workflow [deploy-pages.yml](.github/workflows/deploy-pages.yml) runs `npm run build` and publishes the `dist/` folder
-
-Your site will be live at:
-
-**https://YOUR_USER.github.io/YOUR_REPO/**
-
-### Pages looks like plain black text on white?
-
-That means the **built** CSS/JS did not load. Common causes:
-
-- Pages source is set to a branch/folder with **source files** instead of the Actions deploy (you need the Vite `dist/` output, not `index.html` pointing at `/src/main.js`)
-- Open the site with a trailing slash: `.../YOUR_REPO/` not `.../YOUR_REPO`
-- In DevTools → Network, check that `assets/index-*.js` and `assets/index-*.css` return **200** (not 404)
-
-After fixing, push again and wait for the **Deploy to GitHub Pages** workflow to finish.
 
 ## Credits
 
@@ -69,9 +76,8 @@ After fixing, push again and wait for the **Deploy to GitHub Pages** workflow to
 |-------|--------|
 | Mouse over jet | Bank, pitch, roll toward cursor |
 | Hover airframe | Hotspot intel (radar, engines, bays) |
-| `1` `2` `3` | Camera presets |
+| `1` `2` `3` `4` | Camera presets (`4` = tail / nozzle view) |
 | `Space` | Afterburner burst |
-| `4` | Tail / rear camera (nozzles & stabilizers) |
 | `G` or gear checkbox | Landing gear up / down |
 | Weather buttons | Clear, Cloudy, Overcast, Rain, Storm, Night |
 | Livery buttons | Stealth / Arctic / Aggressor paint |

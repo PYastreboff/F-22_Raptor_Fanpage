@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -33,10 +33,30 @@ jobs:
       - name: Build for GitHub Pages
         run: npm run build
 
+      - name: Verify production bundle
+        run: |
+          if grep -q '/src/main.js' dist/index.html; then
+            echo "::error::dist/index.html still points at dev entry /src/main.js"
+            exit 1
+          fi
+          if ! grep -qE 'assets/index-.*\.js' dist/index.html; then
+            echo "::error::dist/index.html is missing hashed Vite bundle"
+            exit 1
+          fi
+          test -f dist/.nojekyll || cp public/.nojekyll dist/.nojekyll
+          ls -la dist/assets/
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+
+      - name: Publish gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          force_orphan: true
 
   deploy:
     needs: build

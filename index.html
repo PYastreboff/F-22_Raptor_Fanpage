@@ -35,7 +35,8 @@
         <p><strong>F-22 Raptor Command failed to load.</strong></p>
         <p id="load-error-detail">Check the browser console for details.</p>
         <p style="margin-top:1rem;font-size:0.9rem;opacity:0.8">
-          GitHub Pages: enable <em>Settings → Pages → GitHub Actions</em>, then push to <code>main</code>.
+          GitHub Pages must deploy the Vite <code>dist/</code> build — not raw source.
+          Use <em>Settings → Pages → GitHub Actions</em>, or branch <code>gh-pages</code> / root.
         </p>
       </div>
     </div>
@@ -133,6 +134,21 @@
 
       <div id="hotspot-tooltip" class="hotspot-tooltip hidden" role="tooltip"></div>
     </div>
-    <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/main.js" id="app-entry"></script>
+    <script>
+      (function () {
+        var el = document.getElementById('app-entry');
+        if (!el) return;
+        el.addEventListener('error', function () {
+          var box = document.getElementById('load-error');
+          var detail = document.getElementById('load-error-detail');
+          if (box) box.classList.add('visible');
+          if (detail) {
+            detail.textContent =
+              'App bundle failed to load. On GitHub Pages, set Source to GitHub Actions (or gh-pages branch), not main / root.';
+          }
+        });
+      })();
+    </script>
   </body>
 </html>
