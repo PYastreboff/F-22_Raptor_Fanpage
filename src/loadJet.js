@@ -2,8 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createRaptor, createAfterburnerGlow } from './jet.js';
 import {
-  createGearController,
-  createWeaponsController,
+  createAircraftAnimRig,
   createProceduralWeaponsController,
   attachAfterburnerToThrusters,
   resolveJetAxes,
@@ -35,8 +34,9 @@ export function loadJetModel(envMap, onProgress) {
         const axes = resolveJetAxes(model);
         model.userData.axes = axes;
 
-        const gear = createGearController(gltf, model, axes.bodyCenter);
-        const weapons = createWeaponsController(gltf, model, axes.bodyCenter);
+        const animRig = createAircraftAnimRig(gltf, model, axes.bodyCenter);
+        const gear = animRig?.gear ?? null;
+        const weapons = animRig?.weapons ?? null;
         const afterburner = attachAfterburnerToThrusters(model, axes);
         const ports = model.userData.enginePorts || [];
         const exhaustDir = model.userData.exhaustDir;
@@ -46,6 +46,7 @@ export function loadJetModel(envMap, onProgress) {
         model.userData.hotspotCatalog = tagMeshHotspots(model);
         model.userData.proximityZones = buildProximityZones(axes);
         model.userData.livery = 'stealth';
+        model.userData.animRig = animRig;
         model.userData.gear = gear;
         model.userData.weapons = weapons;
 
@@ -53,6 +54,7 @@ export function loadJetModel(envMap, onProgress) {
           model,
           afterburner,
           isGltf: true,
+          animRig,
           gear,
           weapons,
           enginePorts: ports,

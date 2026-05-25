@@ -84,6 +84,7 @@ let raptor = null;
 let afterburner = null;
 let jetIsGltf = false;
 let exhaustOrigin = { points: [], dir: new THREE.Vector3(0, 0, -1) };
+let aircraftAnimRig = null;
 let gearController = null;
 let weaponsController = null;
 
@@ -119,8 +120,10 @@ async function init() {
     raptor = jet.model;
     afterburner = jet.afterburner;
     jetIsGltf = jet.isGltf;
-    gearController = jet.gear || raptor.userData.gear;
-    weaponsController = jet.weapons || raptor.userData.weapons;
+    aircraftAnimRig = jet.animRig || raptor.userData.animRig || null;
+    gearController = aircraftAnimRig?.gear || jet.gear || raptor.userData.gear;
+    weaponsController =
+      aircraftAnimRig?.weapons || jet.weapons || raptor.userData.weapons;
     jetGroup.add(raptor);
 
     if (gearToggle && gearController) {
@@ -128,7 +131,8 @@ async function init() {
       gearToggle.checked = false;
     }
     if (weaponsToggle && weaponsController) {
-      weaponsToggle.checked = weaponsController.isDeployed;
+      weaponsController.setDeployed(false);
+      weaponsToggle.checked = false;
       weaponsToggle.disabled = false;
     } else if (weaponsToggle) {
       weaponsToggle.disabled = true;
@@ -552,8 +556,12 @@ function animate() {
     jetGroup.rotation.set(currentRot.x, currentRot.y, currentRot.z);
     jetGroup.position.y = Math.sin(t * 0.7) * 0.04;
   }
-  gearController?.update(dt);
-  weaponsController?.update(dt);
+  if (aircraftAnimRig) {
+    aircraftAnimRig.update(dt);
+  } else {
+    gearController?.update(dt);
+    weaponsController?.update(dt);
+  }
 
   const ab = throttle + (burstUntil > performance.now() ? 0.7 : 0);
   if (afterburner) setAfterburnerIntensity(afterburner, Math.min(1, ab));

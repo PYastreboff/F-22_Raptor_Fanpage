@@ -10,8 +10,12 @@ const _worldExit = new THREE.Vector3();
 const _modelUp = new THREE.Vector3();
 const _modelDown = new THREE.Vector3();
 
-/** Nudge exhaust anchors down along the airframe up axis (fraction of nozzle size). */
-const EXHAUST_DOWN_FACTOR = 0.28;
+/** Downward shift along model up, as a fraction of nose–tail span. */
+const EXHAUST_DOWN_FUSELAGE_FRACTION = 1 / 3;
+
+function exhaustDownOffset(axes) {
+  return axes.alongSpan * EXHAUST_DOWN_FUSELAGE_FRACTION;
+}
 
 function modelUpFromAxes(axes) {
   const lat = new THREE.Vector3();
@@ -160,7 +164,7 @@ export function resolveJetAxes(model) {
   };
 }
 
-function getNozzleExitWorldPoint(mesh, worldExhaustDir, modelUp) {
+function getNozzleExitWorldPoint(mesh, worldExhaustDir, modelUp, downOffset = 0) {
   mesh.updateWorldMatrix(true, false);
 
   const exhaust = worldExhaustDir.clone().normalize();
@@ -195,8 +199,10 @@ function getNozzleExitWorldPoint(mesh, worldExhaustDir, modelUp) {
       }
     }
     _worldExit.addScaledVector(modelUp, minUp - modelUp.dot(_worldExit));
-    _modelDown.copy(modelUp).negate();
-    _worldExit.addScaledVector(_modelDown, size.length() * EXHAUST_DOWN_FACTOR);
+    if (downOffset > 0) {
+      _modelDown.copy(modelUp).negate();
+      _worldExit.addScaledVector(_modelDown, downOffset);
+    }
   }
 
   _worldExit.addScaledVector(exhaust, size.length() * 0.012);
@@ -204,14 +210,19 @@ function getNozzleExitWorldPoint(mesh, worldExhaustDir, modelUp) {
   return _worldExit;
 }
 
-function getNozzleExitLocal(anchorMesh, exitMesh, worldExhaustDir, modelUp) {
-  _exit.copy(getNozzleExitWorldPoint(exitMesh, worldExhaustDir, modelUp));
+function getNozzleExitLocal(anchorMesh, exitMesh, worldExhaustDir, modelUp, downOffset) {
+  _exit.copy(getNozzleExitWorldPoint(exitMesh, worldExhaustDir, modelUp, downOffset));
   return anchorMesh.worldToLocal(_exit);
 }
 
-export function getNozzleExitWorld(mesh, worldExhaustDir, modelUp = null) {
+export function getNozzleExitWorld(mesh, worldExhaustDir, modelUp = null, downOffset = 0) {
   mesh.updateWorldMatrix(true, false);
-  return getNozzleExitWorldPoint(resolveExitMesh(mesh), worldExhaustDir, modelUp);
+  return getNozzleExitWorldPoint(
+    resolveExitMesh(mesh),
+    worldExhaustDir,
+    modelUp,
+    downOffset
+  );
 }
 
 /** Find inner nozzle meshes (one per engine bank). */
@@ -255,8 +266,9 @@ export function findThrusterNozzles(model, axes) {
   }
 
   const modelUp = modelUpFromAxes(axes);
+  const downOffset = exhaustDownOffset(axes);
   let ports = nozzles.map((mesh) =>
-    getNozzleExitWorldPoint(resolveExitMesh(mesh), exhaustDir, modelUp)
+    getNozzleExitWorldPoint(resolveExitMesh(mesh), exhaustDir, modelUp, downOffset)
   );
 
   if (ports.length < 2) {
@@ -308,6 +320,7 @@ export function attachAfterburnerToThrusters(model, axes) {
   const { nozzles, ports, exhaustDir } = findThrusterNozzles(model, axes);
   const dir = exhaustDir.clone().normalize();
   const modelUp = modelUpFromAxes(axes);
+  const downOffset = exhaustDownOffset(axes);
   model.updateMatrixWorld(true);
 
   const group = new THREE.Group();
@@ -322,7 +335,7 @@ export function attachAfterburnerToThrusters(model, axes) {
           return {
             mesh,
             exitMesh,
-            world: getNozzleExitWorldPoint(exitMesh, dir, modelUp),
+            world: getNozzleExitWorldPoint(exitMesh, dir, modelUp, downOffset),
           };
         })
       : ports.map((world) => ({ mesh: null, exitMesh: null, world }));
@@ -337,7 +350,9 @@ export function attachAfterburnerToThrusters(model, axes) {
       : exhaustDirInModelLocal(model, dir);
 
     if (mesh) {
-      anchor.position.copy(getNozzleExitLocal(mesh, exitMesh || mesh, dir, modelUp));
+      anchor.position.copy(
+        getNozzleExitLocal(mesh, exitMesh || mesh, dir, modelUp, downOffset)
+      );
       mesh.add(anchor);
     } else {
       anchor.position.copy(worldPointToModelLocal(model, world));
@@ -383,34 +398,28 @@ const WEAPONS_EMPTY =
 const GEAR_NODE =
   /^Cube\.(048|049)(?:_|$)|^Cylinder\.(013|018)(?:_|$)|^Empty\.003(?:_|$)/;
 
-/** Classify animated nodes so gear and weapons can use separate mixers. */
+/** Gear allowlist; every other animated node rides the weapons clip (doors + missiles). */
 function classifyAnimatedNode(model, nodeName) {
-  if (WEAPONS_NODE.test(nodeName) || WEAPONS_EMPTY.test(nodeName)) {
-    return 'weapons';
-  }
   if (GEAR_NODE.test(nodeName)) return 'gear';
 
   const node = model.getObjectByName(nodeName);
-  if (!node) return null;
+  if (node) {
+    let tyre = false;
+    node.traverse((child) => {
+      if (!child.isMesh) return;
+      if (/tyre/i.test(materialLabel(child.material))) tyre = true;
+    });
+    if (tyre) return 'gear';
+  }
 
-  let rocket = false;
-  let tyre = false;
-  node.traverse((child) => {
-    if (!child.isMesh) return;
-    const label = materialLabel(child.material);
-    if (/rocket/i.test(label)) rocket = true;
-    if (/tyre/i.test(label)) tyre = true;
-  });
-  if (tyre) return 'gear';
-  if (rocket) return 'weapons';
-
-  return null;
+  return 'weapons';
 }
 
 function extractSubclip(fullClip, model, kind) {
-  const tracks = fullClip.tracks.filter(
-    (track) => classifyAnimatedNode(model, trackNodeName(track)) === kind
-  );
+  const tracks = fullClip.tracks.filter((track) => {
+    const group = classifyAnimatedNode(model, trackNodeName(track));
+    return kind === 'gear' ? group === 'gear' : group === 'weapons';
+  });
   if (!tracks.length) return null;
   return new THREE.AnimationClip(`${fullClip.name}_${kind}`, fullClip.duration, tracks);
 }
@@ -467,25 +476,17 @@ function sampleClipAt(mixer, action, time, probe, model, center) {
     : measureWeaponsDeployment(model, center);
 }
 
-function createSubclipController(gltf, model, kind, bodyCenter) {
-  if (!gltf.animations?.length) return null;
-
-  const subclip = extractSubclip(gltf.animations[0], model, kind);
-  if (!subclip) return null;
-
-  const mixer = new THREE.AnimationMixer(model);
+function createClipController(mixer, subclip, kind, model, bodyCenter) {
   const action = mixer.clipAction(subclip);
   action.clampWhenFinished = true;
   action.setLoop(THREE.LoopOnce, 1);
+  action.enabled = true;
+  action.setEffectiveWeight(1);
   action.play();
   action.paused = true;
-  action.setEffectiveWeight(1);
 
   const center =
     bodyCenter || new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3());
-
-  const atStart = sampleClipAt(mixer, action, 0, kind, model, center);
-  const atEnd = sampleClipAt(mixer, action, subclip.duration, kind, model, center);
 
   let tStowed = 0;
   let tDeployed = subclip.duration;
@@ -494,17 +495,16 @@ function createSubclipController(gltf, model, kind, bodyCenter) {
     tStowed = 0;
     tDeployed = subclip.duration;
   } else if (kind === 'weapons') {
-    // t=0 = bays closed / stowed; end = doors open + missiles out.
-    if (atEnd >= atStart) {
-      tStowed = 0;
-      tDeployed = subclip.duration;
-    } else {
+    // Full clip timeline: start = bays closed, end = doors open + missiles extended.
+    tStowed = 0;
+    tDeployed = subclip.duration;
+  } else {
+    const atStart = sampleClipAt(mixer, action, 0, kind, model, center);
+    const atEnd = sampleClipAt(mixer, action, subclip.duration, kind, model, center);
+    if (atStart > atEnd) {
       tStowed = subclip.duration;
       tDeployed = 0;
     }
-  } else if (atStart > atEnd) {
-    tStowed = subclip.duration;
-    tDeployed = 0;
   }
 
   let current = tStowed;
@@ -514,8 +514,10 @@ function createSubclipController(gltf, model, kind, bodyCenter) {
   action.time = tStowed;
   mixer.update(1 / 60);
 
+  const tMin = Math.min(tStowed, tDeployed);
+  const tMax = Math.max(tStowed, tDeployed);
+
   return {
-    mixer,
     kind,
     get isDown() {
       return isDeployed;
@@ -534,32 +536,55 @@ function createSubclipController(gltf, model, kind, bodyCenter) {
       this.setDeployed(!isDeployed);
       return isDeployed;
     },
-    update(dt) {
-      if (Math.abs(current - target) < 0.002) {
+    tick(dt) {
+      if (Math.abs(current - target) < 0.001) {
         current = target;
       } else {
-        const speed = subclip.duration / 2.5;
+        const speed = subclip.duration / 2.2;
         current += Math.sign(target - current) * speed * dt;
-        current = THREE.MathUtils.clamp(
-          current,
-          Math.min(tStowed, tDeployed),
-          Math.max(tStowed, tDeployed)
-        );
+        current = THREE.MathUtils.clamp(current, tMin, tMax);
       }
       action.time = current;
       action.paused = true;
+    },
+    /** @deprecated Prefer aircraftAnimRig.update(); kept for procedural weapons fallback. */
+    update(dt) {
+      this.tick(dt);
       mixer.update(Math.max(dt, 1 / 120));
     },
   };
 }
 
-export function createGearController(gltf, model, bodyCenter) {
-  return createSubclipController(gltf, model, 'gear', bodyCenter);
+/** One mixer + gear/weapons actions so door and missile tracks stay in sync. */
+export function createAircraftAnimRig(gltf, model, bodyCenter) {
+  if (!gltf.animations?.length) return null;
+
+  const fullClip = gltf.animations[0];
+  const gearClip = extractSubclip(fullClip, model, 'gear');
+  const weaponsClip = extractSubclip(fullClip, model, 'weapons');
+  if (!gearClip && !weaponsClip) return null;
+
+  const mixer = new THREE.AnimationMixer(model);
+  const gear = gearClip
+    ? createClipController(mixer, gearClip, 'gear', model, bodyCenter)
+    : null;
+  const weapons = weaponsClip
+    ? createClipController(mixer, weaponsClip, 'weapons', model, bodyCenter)
+    : null;
+
+  return {
+    mixer,
+    gear,
+    weapons,
+    update(dt) {
+      const step = Math.max(dt, 1 / 120);
+      gear?.tick(dt);
+      weapons?.tick(dt);
+      mixer.update(step);
+    },
+  };
 }
 
-export function createWeaponsController(gltf, model, bodyCenter) {
-  return createSubclipController(gltf, model, 'weapons', bodyCenter);
-}
 
 /** Fallback when the procedural jet is used instead of the GLTF. */
 export function createProceduralWeaponsController(model) {
