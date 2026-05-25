@@ -8,6 +8,7 @@ import {
   resolveHotspotFromMesh,
   findProximityHotspot,
 } from './hotspots.js';
+import { initLoadingUI, setLoadProgress, hideLoading, failLoading } from './loading.js';
 
 const canvas = document.getElementById('scene');
 const hoverZone = document.getElementById('hover-zone');
@@ -21,6 +22,8 @@ const tooltip = document.getElementById('hotspot-tooltip');
 const radarCanvas = document.getElementById('radar-canvas');
 const gearToggle = document.getElementById('gear-toggle');
 const weaponsToggle = document.getElementById('weapons-toggle');
+const cameraZoomInput = document.getElementById('camera-zoom');
+const cameraZoomVal = document.getElementById('camera-zoom-val');
 
 const mouse = { x: 0, y: 0, nx: 0, ny: 0, inside: false };
 const targetRot = { x: 0.08, y: 0.35, z: 0 };
@@ -29,9 +32,9 @@ let throttle = 0.35;
 let burstUntil = 0;
 let cameraMode = 0;
 let activeHotspot = null;
-let zoom = 1;
-const ZOOM_MIN = 0.5;
-const ZOOM_MAX = 2.25;
+let zoom = 1.55;
+const ZOOM_MIN = 0.7;
+const ZOOM_MAX = 2.8;
 const _exhaustWorld = new THREE.Vector3();
 
 const renderer = new THREE.WebGLRenderer({
@@ -88,24 +91,31 @@ const telemetry = { alt: 42000, hdg: 270, g: 1.0 };
 let hudRefreshTimer = 0;
 
 function showLoadError(message) {
-  const el = document.getElementById('load-error');
-  const detail = document.getElementById('load-error-detail');
-  if (el) el.classList.add('visible');
-  if (detail && message) detail.textContent = message;
+  failLoading(message);
   console.error('[F-22]', message);
 }
 
+initLoadingUI();
+setLoadProgress(0.02, 'Initializing renderer…');
+
 async function init() {
   try {
-    const env = await loadPhotoEnvironment(renderer, scene);
+    setLoadProgress(0.08, 'Loading HDR sky…');
+    const env = await loadPhotoEnvironment(renderer, scene, (p) => {
+      setLoadProgress(0.08 + p * 0.28);
+    });
     envMap = env.envMap;
     sunLight = env.sun;
     cloudSea = env.cloudSea;
     weatherController = env.weather;
 
+    setLoadProgress(0.38, 'Setting up post-processing…');
     post = createComposer(renderer, scene, camera);
 
-    const jet = await loadJetModel(envMap);
+    setLoadProgress(0.42, 'Loading F-22 Raptor model…');
+    const jet = await loadJetModel(envMap, (p) => {
+      setLoadProgress(0.42 + p * 0.52);
+    });
     raptor = jet.model;
     afterburner = jet.afterburner;
     jetIsGltf = jet.isGltf;
@@ -132,6 +142,9 @@ async function init() {
       points: ports.map((p) => p.clone()),
       dir: jet.exhaustDir?.clone() || new THREE.Vector3(0, 0, -1),
     };
+
+    setLoadProgress(1, 'Systems online');
+    hideLoading();
   } catch (err) {
     showLoadError(err?.message || 'Failed to initialize 3D scene.');
   }
@@ -288,6 +301,7 @@ canvas.addEventListener(
     e.preventDefault();
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
     zoom = THREE.MathUtils.clamp(zoom * factor, ZOOM_MIN, ZOOM_MAX);
+    syncCameraZoomUI();
     modeBadge.textContent = `ZOOM ${Math.round(zoom * 100)}%`;
     clearTimeout(canvas._zoomBadgeTimer);
     canvas._zoomBadgeTimer = setTimeout(() => {
@@ -419,6 +433,23 @@ throttleInput.addEventListener('input', () => {
   throttle = throttleInput.value / 100;
   throttleVal.textContent = `${throttleInput.value}%`;
 });
+
+function syncCameraZoomUI() {
+  const pct = Math.round(zoom * 100);
+  if (cameraZoomInput) cameraZoomInput.value = String(pct);
+  if (cameraZoomVal) cameraZoomVal.textContent = `${pct}%`;
+}
+
+function setCameraZoomFromSlider() {
+  if (!cameraZoomInput) return;
+  zoom = THREE.MathUtils.clamp(Number(cameraZoomInput.value) / 100, ZOOM_MIN, ZOOM_MAX);
+  syncCameraZoomUI();
+}
+
+if (cameraZoomInput) {
+  syncCameraZoomUI();
+  cameraZoomInput.addEventListener('input', setCameraZoomFromSlider);
+}
 
 let radarAngle = 0;
 function drawRadar() {

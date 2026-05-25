@@ -18,7 +18,7 @@ const LIVERIES = {
   aggressor: { tint: 0x88a8c8, metal: 1.05, rough: 0.95, env: 1.3 },
 };
 
-export function loadJetModel(envMap) {
+export function loadJetModel(envMap, onProgress) {
   return new Promise((resolve) => {
     const loader = new GLTFLoader();
     loader.load(
@@ -59,7 +59,11 @@ export function loadJetModel(envMap) {
           exhaustDir,
         });
       },
-      undefined,
+      (xhr) => {
+        if (onProgress && xhr.lengthComputable && xhr.total) {
+          onProgress(xhr.loaded / xhr.total);
+        }
+      },
       () => {
         const model = createRaptor('stealth', envMap);
         const afterburner = createAfterburnerGlow();

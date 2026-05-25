@@ -4,6 +4,10 @@ import { createAfterburnerAssembly } from './jet.js';
 const CAMERA_FORWARD = new THREE.Vector3(0, 0, 1);
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const _dirLocal = new THREE.Vector3();
+const _exit = new THREE.Vector3();
+const _worldExit = new THREE.Vector3();
+const _worldCenter = new THREE.Vector3();
+const _perp = new THREE.Vector3();
 
 const EXHAUST_MATERIAL = /^Material\.(009|010|011|012|005)$/;
 const NOZZLE_MESH = /^Object_(9|10|11)$/;
@@ -134,27 +138,38 @@ function getNozzleExitLocal(mesh, worldExhaustDir) {
   if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
   const box = mesh.geometry.boundingBox;
 
+  mesh.updateWorldMatrix(true, false);
   const inv = mesh.matrixWorld.clone().invert();
   const localExhaust = worldExhaustDir.clone().transformDirection(inv).normalize();
 
-  let exit = box.getCenter(new THREE.Vector3());
   let minProj = Infinity;
   for (const corner of boxCorners(box)) {
-    const proj = localExhaust.dot(corner);
-    if (proj < minProj) {
-      minProj = proj;
-      exit = corner.clone();
-    }
+    minProj = Math.min(minProj, localExhaust.dot(corner));
   }
 
-  exit.add(localExhaust.clone().multiplyScalar(0.1));
-  return exit;
+  const center = box.getCenter(_exit);
+  const centerAlong = localExhaust.dot(center);
+  _exit.copy(center).add(localExhaust.clone().multiplyScalar(minProj - centerAlong));
+
+  mesh.localToWorld(_exit);
+  _worldExit.copy(_exit);
+
+  const worldBox = new THREE.Box3().setFromObject(mesh);
+  worldBox.getCenter(_worldCenter);
+
+  _perp.copy(_worldCenter).sub(_worldExit);
+  const along = worldExhaustDir.dot(_perp);
+  _perp.addScaledVector(worldExhaustDir, -along);
+  _worldExit.addScaledVector(_perp, 0.82);
+
+  _worldExit.addScaledVector(worldExhaustDir, 0.03);
+
+  return mesh.worldToLocal(_worldExit);
 }
 
 export function getNozzleExitWorld(mesh, worldExhaustDir) {
   mesh.updateWorldMatrix(true, false);
-  const local = getNozzleExitLocal(mesh, worldExhaustDir.clone());
-  return mesh.localToWorld(local);
+  return mesh.localToWorld(getNozzleExitLocal(mesh, worldExhaustDir));
 }
 
 /** Find inner nozzle meshes (one per engine bank). */
@@ -245,7 +260,7 @@ function exhaustDirInModelLocal(model, worldExhaustDir) {
 }
 
 export function attachAfterburnerToThrusters(model, axes) {
-  const { ports, exhaustDir } = findThrusterNozzles(model, axes);
+  const { nozzles, ports, exhaustDir } = findThrusterNozzles(model, axes);
   const dir = exhaustDir.clone().normalize();
   model.updateMatrixWorld(true);
 
@@ -254,19 +269,33 @@ export function attachAfterburnerToThrusters(model, axes) {
   const flames = [];
   const nozzleMeshes = [];
 
-  for (const portWorld of ports) {
+  const attachPoints =
+    nozzles.length > 0
+      ? nozzles.map((mesh) => ({ mesh, world: getNozzleExitWorld(mesh, dir) }))
+      : ports.map((world) => ({ mesh: null, world }));
+
+  for (const { mesh, world } of attachPoints) {
     const anchor = new THREE.Object3D();
     anchor.name = 'exhaust-anchor';
-    anchor.position.copy(worldPointToModelLocal(model, portWorld));
 
-    const dirLocal = exhaustDirInModelLocal(model, dir);
+    const dirLocal = mesh
+      ? dir.clone().transformDirection(mesh.matrixWorld.clone().invert()).normalize()
+      : exhaustDirInModelLocal(model, dir);
+
+    if (mesh) {
+      anchor.position.copy(getNozzleExitLocal(mesh, dir));
+      mesh.add(anchor);
+    } else {
+      anchor.position.copy(worldPointToModelLocal(model, world));
+      model.add(anchor);
+    }
+
     anchor.quaternion.setFromUnitVectors(Y_AXIS, dirLocal);
 
     const plume = createAfterburnerAssembly();
     anchor.add(plume);
     flames.push(...plume.userData.flames);
 
-    model.add(anchor);
     nozzleMeshes.push(anchor);
   }
 

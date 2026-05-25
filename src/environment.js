@@ -4,9 +4,20 @@ import { createWeatherController } from './weather.js';
 
 const HDR_URL = `${import.meta.env.BASE_URL}hdri/sky.hdr`;
 
-export async function loadPhotoEnvironment(renderer, scene) {
+export async function loadPhotoEnvironment(renderer, scene, onProgress) {
   const loader = new RGBELoader();
-  const hdr = await loader.loadAsync(HDR_URL);
+  const hdr = await new Promise((resolve, reject) => {
+    loader.load(
+      HDR_URL,
+      resolve,
+      (xhr) => {
+        if (onProgress && xhr.lengthComputable && xhr.total) {
+          onProgress(xhr.loaded / xhr.total);
+        }
+      },
+      reject
+    );
+  });
   hdr.mapping = THREE.EquirectangularReflectionMapping;
 
   const pmrem = new THREE.PMREMGenerator(renderer);

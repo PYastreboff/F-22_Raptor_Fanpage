@@ -33,20 +33,24 @@
     </script>
     <style>
       html, body { margin: 0; background: #0a1520; color: #c8e6f0; }
-      #load-error {
-        display: none;
-        position: fixed; inset: 0; z-index: 9999;
-        place-content: center; padding: 2rem; text-align: center;
-        font-family: system-ui, sans-serif;
-        background: #0a1520;
-      }
-      #load-error.visible { display: grid; }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
+    <div id="loading-screen" role="status" aria-live="polite" aria-busy="true">
+      <div class="loading-panel">
+        <p class="loading-tag">TACTICAL INTERFACE</p>
+        <h1 class="loading-title"><span>F-22</span> RAPTOR COMMAND</h1>
+        <p class="loading-status" id="load-status">Initializing…</p>
+        <div class="loading-bar-track" aria-hidden="true">
+          <div class="loading-bar-fill" id="load-progress-bar"></div>
+        </div>
+        <p class="loading-percent" id="load-percent">0%</p>
+        <p class="loading-hint">Loading photoreal model &amp; environment</p>
+      </div>
+    </div>
     <div id="load-error" role="alert">
       <div>
         <p><strong>F-22 Raptor Command failed to load.</strong></p>
@@ -128,6 +132,11 @@
           </div>
         </div>
         <div class="throttle-wrap">
+          <label for="camera-zoom">CAMERA DISTANCE</label>
+          <input type="range" id="camera-zoom" min="70" max="280" value="155" />
+          <span id="camera-zoom-val">155%</span>
+        </div>
+        <div class="throttle-wrap">
           <label for="throttle">AFTERBURNER</label>
           <input type="range" id="throttle" min="0" max="100" value="35" />
           <span id="throttle-val">35%</span>
@@ -146,7 +155,7 @@
         <div class="coords" id="coords">ALT 42,000 ft · HDG 270° · G 1.0</div>
         <div class="hints">
           <kbd>1</kbd>–<kbd>6</kbd> cameras ·
-          scroll zoom ·
+          camera slider ·
           <kbd>G</kbd> gear ·
           <kbd>W</kbd> weapons ·
           <kbd>Space</kbd> AB ·
@@ -163,6 +172,8 @@
         var el = document.getElementById('app-entry');
         if (!el) return;
         el.addEventListener('error', function () {
+          var loading = document.getElementById('loading-screen');
+          if (loading) loading.classList.add('is-hidden');
           var box = document.getElementById('load-error');
           var detail = document.getElementById('load-error-detail');
           if (box) box.classList.add('visible');
