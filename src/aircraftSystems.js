@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PropertyBinding } from 'three';
 import { createAfterburnerAssembly } from './jet.js';
 
 const CAMERA_FORWARD = new THREE.Vector3(0, 0, 1);
@@ -6,8 +7,6 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const _dirLocal = new THREE.Vector3();
 const _exit = new THREE.Vector3();
 const _worldExit = new THREE.Vector3();
-const _worldCenter = new THREE.Vector3();
-const _perp = new THREE.Vector3();
 
 const EXHAUST_MATERIAL = /^Material\.(009|010|011|012|005)$/;
 const NOZZLE_MESH = /^Object_(9|10|11)$/;
@@ -77,6 +76,22 @@ function isInnerNozzleMesh(mesh) {
   return /Material\.010|Material\.011/.test(materialLabel(mesh.material));
 }
 
+function isExhaustRingMesh(mesh) {
+  return /Material\.009/i.test(materialLabel(mesh.material));
+}
+
+/** Prefer the inner exhaust ring mesh co-located with a nozzle shroud. */
+function resolveExitMesh(nozzleMesh) {
+  const parent = nozzleMesh.parent;
+  if (!parent) return nozzleMesh;
+
+  let ring = null;
+  parent.traverse((child) => {
+    if (child.isMesh && isExhaustRingMesh(child)) ring = child;
+  });
+  return ring || nozzleMesh;
+}
+
 function boxCorners(box) {
   const { min, max } = box;
   return [
@@ -134,42 +149,49 @@ export function resolveJetAxes(model) {
   };
 }
 
-function getNozzleExitLocal(mesh, worldExhaustDir) {
-  if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-  const box = mesh.geometry.boundingBox;
-
+function getNozzleExitWorldPoint(mesh, worldExhaustDir) {
   mesh.updateWorldMatrix(true, false);
-  const inv = mesh.matrixWorld.clone().invert();
-  const localExhaust = worldExhaustDir.clone().transformDirection(inv).normalize();
 
-  let minProj = Infinity;
-  for (const corner of boxCorners(box)) {
-    minProj = Math.min(minProj, localExhaust.dot(corner));
+  const exhaust = worldExhaustDir.clone().normalize();
+  const worldBox = new THREE.Box3().setFromObject(mesh);
+  const size = worldBox.getSize(new THREE.Vector3());
+  const worldCorners = boxCorners(worldBox);
+
+  let maxProj = -Infinity;
+  for (const corner of worldCorners) {
+    maxProj = Math.max(maxProj, exhaust.dot(corner));
   }
 
-  const center = box.getCenter(_exit);
-  const centerAlong = localExhaust.dot(center);
-  _exit.copy(center).add(localExhaust.clone().multiplyScalar(minProj - centerAlong));
+  const eps = Math.max(size.length() * 1e-4, 1e-5);
+  const rear = [];
+  for (const corner of worldCorners) {
+    if (maxProj - exhaust.dot(corner) <= eps) rear.push(corner);
+  }
+  if (!rear.length) rear.push(...worldCorners);
 
-  mesh.localToWorld(_exit);
-  _worldExit.copy(_exit);
+  _worldExit.set(0, 0, 0);
+  for (const point of rear) _worldExit.add(point);
+  _worldExit.divideScalar(rear.length);
 
-  const worldBox = new THREE.Box3().setFromObject(mesh);
-  worldBox.getCenter(_worldCenter);
+  let bottom = rear[0];
+  for (const point of rear) {
+    if (point.y < bottom.y) bottom = point;
+  }
+  _worldExit.y = bottom.y;
 
-  _perp.copy(_worldCenter).sub(_worldExit);
-  const along = worldExhaustDir.dot(_perp);
-  _perp.addScaledVector(worldExhaustDir, -along);
-  _worldExit.addScaledVector(_perp, 0.82);
+  _worldExit.addScaledVector(exhaust, size.length() * 0.012);
 
-  _worldExit.addScaledVector(worldExhaustDir, 0.03);
+  return _worldExit;
+}
 
-  return mesh.worldToLocal(_worldExit);
+function getNozzleExitLocal(anchorMesh, exitMesh, worldExhaustDir) {
+  _exit.copy(getNozzleExitWorldPoint(exitMesh, worldExhaustDir));
+  return anchorMesh.worldToLocal(_exit);
 }
 
 export function getNozzleExitWorld(mesh, worldExhaustDir) {
   mesh.updateWorldMatrix(true, false);
-  return mesh.localToWorld(getNozzleExitLocal(mesh, worldExhaustDir));
+  return getNozzleExitWorldPoint(resolveExitMesh(mesh), worldExhaustDir);
 }
 
 /** Find inner nozzle meshes (one per engine bank). */
@@ -212,7 +234,9 @@ export function findThrusterNozzles(model, axes) {
     if (right && right.mesh !== left?.mesh) nozzles.push(right.mesh);
   }
 
-  let ports = nozzles.map((mesh) => getNozzleExitWorld(mesh, exhaustDir));
+  let ports = nozzles.map((mesh) =>
+    getNozzleExitWorldPoint(resolveExitMesh(mesh), exhaustDir)
+  );
 
   if (ports.length < 2) {
     ports = buildSymmetricExhaustPorts(axes, ports[0] || null);
@@ -271,19 +295,27 @@ export function attachAfterburnerToThrusters(model, axes) {
 
   const attachPoints =
     nozzles.length > 0
-      ? nozzles.map((mesh) => ({ mesh, world: getNozzleExitWorld(mesh, dir) }))
-      : ports.map((world) => ({ mesh: null, world }));
+      ? nozzles.map((mesh) => {
+          const exitMesh = resolveExitMesh(mesh);
+          return {
+            mesh,
+            exitMesh,
+            world: getNozzleExitWorldPoint(exitMesh, dir),
+          };
+        })
+      : ports.map((world) => ({ mesh: null, exitMesh: null, world }));
 
-  for (const { mesh, world } of attachPoints) {
+  for (const { mesh, exitMesh, world } of attachPoints) {
     const anchor = new THREE.Object3D();
     anchor.name = 'exhaust-anchor';
 
-    const dirLocal = mesh
-      ? dir.clone().transformDirection(mesh.matrixWorld.clone().invert()).normalize()
+    const orientMesh = exitMesh || mesh;
+    const dirLocal = orientMesh
+      ? dir.clone().transformDirection(orientMesh.matrixWorld.clone().invert()).normalize()
       : exhaustDirInModelLocal(model, dir);
 
     if (mesh) {
-      anchor.position.copy(getNozzleExitLocal(mesh, dir));
+      anchor.position.copy(getNozzleExitLocal(mesh, exitMesh || mesh, dir));
       mesh.add(anchor);
     } else {
       anchor.position.copy(worldPointToModelLocal(model, world));
@@ -317,33 +349,36 @@ export function findExhaustPorts(model) {
 }
 
 function trackNodeName(track) {
-  return track.name.split('.')[0];
+  return PropertyBinding.parseTrackName(track.name).nodeName;
 }
+
+const WEAPONS_NODE =
+  /^Cube\.(055|056|058|059|060|061|062|064|068|069)(?:_|$)/;
+const WEAPONS_EMPTY =
+  /^Empty\.(004|005|007|008|009|010|011|012)(?:_|$)/;
+const GEAR_NODE =
+  /^Cube\.(048|049|050|051|052|016|043|044)(?:_|$)|^Cylinder\.(013|018)(?:_|$)|^Empty\.003(?:_|$)/;
 
 /** Classify animated nodes so gear and weapons can use separate mixers. */
 function classifyAnimatedNode(model, nodeName) {
-  const node = model.getObjectByName(nodeName);
-  if (node) {
-    let rocket = false;
-    let tyre = false;
-    node.traverse((child) => {
-      if (!child.isMesh) return;
-      const label = materialLabel(child.material);
-      if (/rocket/i.test(label)) rocket = true;
-      if (/tyre/i.test(label)) tyre = true;
-    });
-    if (tyre) return 'gear';
-    if (rocket) return 'weapons';
+  if (WEAPONS_NODE.test(nodeName) || WEAPONS_EMPTY.test(nodeName)) {
+    return 'weapons';
   }
+  if (GEAR_NODE.test(nodeName)) return 'gear';
 
-  if (/^Cube\.(055|056|058|059|060|061|062|064|068|069)/.test(nodeName)) {
-    return 'weapons';
-  }
-  if (/^Empty\.(003|004|005|007|008|009|010|011|012)/.test(nodeName)) {
-    return 'weapons';
-  }
-  if (/^Cylinder\.(013|018)/.test(nodeName)) return 'gear';
-  if (/^Cube\.(048|049|050|051|052|016|043|044)/.test(nodeName)) return 'gear';
+  const node = model.getObjectByName(nodeName);
+  if (!node) return null;
+
+  let rocket = false;
+  let tyre = false;
+  node.traverse((child) => {
+    if (!child.isMesh) return;
+    const label = materialLabel(child.material);
+    if (/rocket/i.test(label)) rocket = true;
+    if (/tyre/i.test(label)) tyre = true;
+  });
+  if (tyre) return 'gear';
+  if (rocket) return 'weapons';
 
   return null;
 }
@@ -370,18 +405,18 @@ function measureTyreSpread(model, center) {
   return count ? sum / count : 0;
 }
 
-function measureRocketSpread(model) {
-  const tmp = new THREE.Vector3();
+/** Sum of bay-door / weapons-bay pivot rotations (open bays rotate more). */
+function measureBayOpenness(model) {
   let sum = 0;
-  let count = 0;
-  model.traverse((child) => {
-    if (!child.isMesh) return;
-    if (!/rocket/i.test(materialLabel(child.material))) return;
-    child.getWorldPosition(tmp);
-    sum += tmp.length();
-    count++;
+  model.traverse((obj) => {
+    const name = obj.name || '';
+    if (!WEAPONS_NODE.test(name) && !WEAPONS_EMPTY.test(name)) return;
+    sum +=
+      Math.abs(obj.rotation.x) +
+      Math.abs(obj.rotation.y) +
+      Math.abs(obj.rotation.z);
   });
-  return count ? sum / count : 0;
+  return sum;
 }
 
 function sampleClipAt(mixer, action, time, probe, model, center) {
@@ -389,7 +424,7 @@ function sampleClipAt(mixer, action, time, probe, model, center) {
   mixer.update(1 / 60);
   return probe === 'gear'
     ? measureTyreSpread(model, center)
-    : measureRocketSpread(model);
+    : measureBayOpenness(model);
 }
 
 function createSubclipController(gltf, model, kind, bodyCenter) {
@@ -400,6 +435,8 @@ function createSubclipController(gltf, model, kind, bodyCenter) {
 
   const mixer = new THREE.AnimationMixer(model);
   const action = mixer.clipAction(subclip);
+  action.clampWhenFinished = true;
+  action.setLoop(THREE.LoopOnce, 1);
   action.play();
   action.paused = true;
   action.setEffectiveWeight(1);

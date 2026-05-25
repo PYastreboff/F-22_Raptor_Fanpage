@@ -15,7 +15,7 @@
   },
   "build": {
     "appId": "com.f22.raptor",
-    "productName": "F-22 Raptor Command",
+    "productName": "Peters F-22 raptor command",
     "directories": { "output": "release" },
     "files": ["dist/**/*", "electron/**/*"],
     "mac": { "category": "public.app-category.entertainment", "target": "dmg" },
