@@ -205,7 +205,7 @@ body.app-ready #app {
   border-width: 2px 2px 0 0;
 }
 .corner-bracket.bl {
-  bottom: 56px;
+  bottom: 228px;
   left: 24px;
   border-width: 0 0 2px 2px;
 }
@@ -216,15 +216,17 @@ body.app-ready #app {
 }
 
 .radar {
-  position: absolute;
-  bottom: 80px;
-  left: 28px;
+  position: fixed;
+  bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 56px));
+  left: 24px;
+  z-index: 9;
   width: 140px;
   height: 140px;
   border: 1px solid var(--border);
   border-radius: 50%;
   background: rgba(0, 20, 30, 0.5);
   overflow: hidden;
+  pointer-events: none;
 }
 
 .radar canvas {
@@ -255,7 +257,12 @@ body.app-ready #app {
   justify-content: space-between;
   padding: 20px 28px 12px;
   padding-top: max(20px, env(safe-area-inset-top, 20px));
-  background: linear-gradient(180deg, rgba(3, 5, 8, 0.9) 0%, transparent 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(3, 5, 8, 0.94) 0%,
+    rgba(3, 5, 8, 0.5) 50%,
+    transparent 100%
+  );
   -webkit-app-region: drag;
 }
 
@@ -278,8 +285,13 @@ body.app-ready #app {
 .logo-sub {
   font-family: var(--font-display);
   font-size: 0.65rem;
+  font-weight: 600;
   letter-spacing: 0.45em;
-  color: var(--muted);
+  color: #0c2d3d;
+  text-shadow:
+    0 0 10px rgba(255, 255, 255, 0.8),
+    0 1px 0 rgba(255, 255, 255, 0.55),
+    0 1px 3px rgba(8, 24, 36, 0.35);
 }
 
 .status-pills {
@@ -308,8 +320,6 @@ body.app-ready #app {
 
 .spec-panel {
   position: fixed;
-  top: 50%;
-  transform: translateY(-50%);
   z-index: 10;
   width: 240px;
   padding: 20px;
@@ -321,11 +331,18 @@ body.app-ready #app {
 
 .spec-panel.left {
   left: 24px;
+  top: max(96px, calc(env(safe-area-inset-top, 0px) + 88px));
+  bottom: auto;
+  max-height: calc(100vh - 96px - 232px);
+  overflow-y: auto;
 }
 
 .spec-panel.right {
   right: 24px;
   width: 260px;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
 }
 
 .spec-panel h2 {
@@ -359,6 +376,12 @@ body.app-ready #app {
 
 .spec-panel dd.highlight {
   color: var(--amber);
+}
+
+#stat-speed-context {
+  text-align: right;
+  font-weight: 600;
+  color: var(--cyan);
 }
 
 .hover-card {
@@ -618,6 +641,14 @@ body.app-ready #app {
   border: 1px solid var(--amber);
   color: var(--amber);
   white-space: nowrap;
+}
+
+.mode-badge--warn {
+  border-color: #e85d4a;
+  color: #ffb4a8;
+  max-width: min(42vw, 320px);
+  overflow: hidden;
+  text-overflow: ellipsis;
   animation: pulse-badge 2s ease-in-out infinite;
 }
 
@@ -650,6 +681,24 @@ body.app-ready #app {
 
 .hotspot-tooltip.hidden {
   opacity: 0;
+}
+
+.pill[data-system='stealth'].active {
+  border-color: rgba(120, 150, 170, 0.7);
+  color: #9eb4c4;
+  box-shadow: 0 0 12px rgba(120, 150, 170, 0.25);
+}
+
+.pill[data-system='supercruise'].active {
+  border-color: rgba(0, 229, 255, 0.85);
+  color: var(--cyan);
+  box-shadow: var(--glow);
+}
+
+.pill[data-system='thrust'].active {
+  border-color: rgba(255, 140, 66, 0.85);
+  color: #ff9a50;
+  box-shadow: 0 0 14px rgba(255, 106, 32, 0.35);
 }
 
 @media (max-width: 1100px) {

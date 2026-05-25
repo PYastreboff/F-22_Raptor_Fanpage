@@ -9,7 +9,20 @@ import {
 } from './aircraftSystems.js';
 import { tagMeshHotspots, buildHotspotCatalog, buildProximityZones } from './hotspots.js';
 
-const MODEL_URL = `${import.meta.env.BASE_URL}f22_raptor/scene.gltf`;
+function resolveModelUrl() {
+  const base =
+    (typeof window !== 'undefined' && window.__F22_ASSET_ROOT__) ||
+    import.meta.env.BASE_URL ||
+    './';
+  const root = base.endsWith('/') ? base : `${base}/`;
+  return `${root}f22_raptor/scene.gltf`;
+}
+
+function formatLoadError(err) {
+  if (!err) return 'Unknown error';
+  if (typeof err === 'string') return err;
+  return err.message || String(err);
+}
 
 const LIVERIES = {
   stealth: { tint: 0xffffff, metal: 1, rough: 1, env: 1.35 },
@@ -19,9 +32,12 @@ const LIVERIES = {
 
 export function loadJetModel(envMap, onProgress) {
   return new Promise((resolve) => {
+    const modelUrl = resolveModelUrl();
     const loader = new GLTFLoader();
+    // Do not call setPath() with a full URL — Three.js concatenates path+url and breaks the request.
+
     loader.load(
-      MODEL_URL,
+      modelUrl,
       (gltf) => {
         const model = gltf.scene;
         const materials = enhanceMaterials(model, envMap);
@@ -34,7 +50,7 @@ export function loadJetModel(envMap, onProgress) {
         const axes = resolveJetAxes(model);
         model.userData.axes = axes;
 
-        const animRig = createAircraftAnimRig(gltf, model, axes.bodyCenter);
+        const animRig = createAircraftAnimRig(gltf, model);
         const gear = animRig?.gear ?? null;
         const weapons = animRig?.weapons ?? null;
         const afterburner = attachAfterburnerToThrusters(model, axes);
@@ -54,6 +70,7 @@ export function loadJetModel(envMap, onProgress) {
           model,
           afterburner,
           isGltf: true,
+          gltf,
           animRig,
           gear,
           weapons,
@@ -66,7 +83,15 @@ export function loadJetModel(envMap, onProgress) {
           onProgress(xhr.loaded / xhr.total);
         }
       },
-      () => {
+      (err) => {
+        const loadError = formatLoadError(err);
+        console.error(
+          '[F-22] HD model failed to load; using placeholder geometry.',
+          loadError,
+          'Expected:',
+          modelUrl
+        );
+
         const model = createRaptor('stealth', envMap);
         const afterburner = createAfterburnerGlow();
         model.add(afterburner);
@@ -79,6 +104,7 @@ export function loadJetModel(envMap, onProgress) {
           model,
           afterburner,
           isGltf: false,
+          loadError,
           gear: null,
           weapons,
           enginePorts: [
@@ -92,7 +118,7 @@ export function loadJetModel(envMap, onProgress) {
   });
 }
 
-/** Windscreen: tinted and opaque so empty cockpit geometry does not show through. */
+/** Windscreen: gold-amber F-22 canopy tint; opaque so empty cockpit geometry does not show through. */
 function tuneCanopyGlass(mat) {
   mat.transmission = 0;
   mat.thickness = 0;
@@ -100,13 +126,14 @@ function tuneCanopyGlass(mat) {
   mat.opacity = 1;
   mat.depthWrite = true;
   mat.side = THREE.FrontSide;
-  mat.metalness = 0.15;
-  mat.roughness = 0.12;
-  mat.color.setRGB(0.06, 0.1, 0.14);
-  if (mat.specularColor) mat.specularColor.setRGB(0.35, 0.42, 0.5);
-  mat.envMapIntensity = 1.1;
-  mat.clearcoat = 0.85;
-  mat.clearcoatRoughness = 0.08;
+  mat.metalness = 0.22;
+  mat.roughness = 0.1;
+  // Reflective canopy coating — warm yellow-orange, not blue cockpit glass
+  mat.color.setRGB(0.42, 0.27, 0.07);
+  if (mat.specularColor) mat.specularColor.setRGB(0.55, 0.36, 0.1);
+  mat.envMapIntensity = 1.25;
+  mat.clearcoat = 0.9;
+  mat.clearcoatRoughness = 0.06;
 }
 
 function enhanceMaterials(root, envMap) {

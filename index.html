@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Peter's F-22 raptor command</title>
+    <title>Peter's F-22 Raptor Command</title>
     <script>
       (function () {
         var path = window.location.pathname;
@@ -42,7 +42,7 @@
     <div id="loading-screen" role="status" aria-live="polite" aria-busy="true">
       <div class="loading-panel">
         <p class="loading-tag">TACTICAL INTERFACE</p>
-        <h1 class="loading-title">Peter's <span>F-22</span> raptor command</h1>
+        <h1 class="loading-title">Peter's <span>F-22</span> Raptor Command</h1>
         <p class="loading-status" id="load-status">Initializing…</p>
         <div class="loading-bar-track" aria-hidden="true">
           <div class="loading-bar-fill" id="load-progress-bar"></div>
@@ -53,7 +53,7 @@
     </div>
     <div id="load-error" role="alert">
       <div>
-        <p><strong>Peter's F-22 raptor command failed to load.</strong></p>
+        <p><strong>Peter's F-22 Raptor Command failed to load.</strong></p>
         <p id="load-error-detail">Check the browser console for details.</p>
         <p style="margin-top:1rem;font-size:0.9rem;opacity:0.8">
           GitHub Pages must deploy the Vite <code>dist/</code> build — not raw source.
@@ -80,7 +80,7 @@
       <header class="top-bar">
         <div class="logo">
           <span class="logo-accent">Peter's F-22</span>
-          <span class="logo-sub">raptor command</span>
+          <span class="logo-sub">Raptor Command</span>
         </div>
         <div class="status-pills">
           <span class="pill active" data-system="stealth">STEALTH</span>
@@ -96,7 +96,8 @@
           <div><dt>Role</dt><dd>Air dominance fighter</dd></div>
           <div><dt>First flight</dt><dd>7 Sep 1997</dd></div>
           <div><dt>Service entry</dt><dd>15 Dec 2005</dd></div>
-          <div><dt>Max speed</dt><dd class="highlight" id="stat-speed">Mach 2.25+</dd></div>
+          <div><dt>Max speed</dt><dd class="highlight" id="stat-speed-max">Mach 2.25+</dd></div>
+          <div><dt>Contextual max speed</dt><dd id="stat-speed-context">Mach 0.95 (LO profile)</dd></div>
           <div><dt>Combat radius</dt><dd>~460 nmi</dd></div>
           <div><dt>Engines</dt><dd>2× Pratt & Whitney F119</dd></div>
           <div><dt>Thrust (with AB)</dt><dd>~70,000 lbf total</dd></div>

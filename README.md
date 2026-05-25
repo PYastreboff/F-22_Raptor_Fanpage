@@ -1,6 +1,6 @@
 # F-22 Raptor Command
 
-Interactive 3D F-22 — hover to maneuver, afterburner effects, radar HUD, weather, and livery switching. Runs as a **desktop app** (Electron) or in the **browser**.
+Interactive 3D F-22 Raptor — hover to maneuver, afterburner effects, radar HUD, weather, and livery switching. Runs as a **desktop app** (Electron) or in the **browser**.
 
 ## Live demo
 
@@ -62,6 +62,7 @@ If you still see `src="/src/main.js"`, Pages is serving **source** files — the
 | Plain text HUD, no jet / dark canvas | Pages source must be **GitHub Actions** or **`gh-pages`** branch, not `main` root |
 | `assets/index-*.js` 404 in Network tab | Open the site with a trailing slash: `.../F-22_Raptor_Fanpage/` |
 | “Failed to load” overlay | Check console; confirm `f22_raptor/` and `hdri/` exist under the deployed site |
+| Blocky jet made of simple parts; HUD says **PLACEHOLDER MODEL** | The real GLTF did not load. Use `npm run dev` or `npm run dev:web` (not opening `index.html` in Finder). Confirm `public/f22_raptor/scene.gltf` exists. For desktop after `npm start`, rebuild so Electron serves `dist/` over HTTP. |
 
 `node_modules/`, `dist/`, and `release/` are gitignored — only source and `public/` assets are committed (~70MB for the 3D model textures).
 

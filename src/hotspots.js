@@ -38,7 +38,7 @@ const RULES = [
     id: 'weapons',
     test: (mat) => /rocket/i.test(mat),
     label: 'EXTERNAL STORES / MISSILES',
-    detail: 'Training or ferry stores; operational F-22 carries AIM-120 and AIM-9 in internal bays.',
+    detail: 'Training or ferry stores; operational F-22 Raptor carries AIM-120 and AIM-9 in internal bays.',
   },
   {
     id: 'intake',
@@ -63,7 +63,7 @@ const RULES = [
 
 const DEFAULT_HOTSPOT = {
   id: 'airframe',
-  label: 'F-22 AIRFRAME',
+  label: 'F-22 RAPTOR AIRFRAME',
   detail: 'Fifth-generation air-superiority fighter — supercruise and all-aspect stealth.',
 };
 

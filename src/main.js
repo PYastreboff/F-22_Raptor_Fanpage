@@ -9,6 +9,11 @@ import {
   findProximityHotspot,
 } from './hotspots.js';
 import { initLoadingUI, setLoadProgress, hideLoading, failLoading } from './loading.js';
+import {
+  collectExhaustEmits,
+  startThrustVectorDemo,
+  updateThrustVectorDemo,
+} from './abTune.js';
 
 const canvas = document.getElementById('scene');
 const hoverZone = document.getElementById('hover-zone');
@@ -24,6 +29,7 @@ const gearToggle = document.getElementById('gear-toggle');
 const weaponsToggle = document.getElementById('weapons-toggle');
 const cameraZoomInput = document.getElementById('camera-zoom');
 const cameraZoomVal = document.getElementById('camera-zoom-val');
+const statSpeedContextEl = document.getElementById('stat-speed-context');
 
 const mouse = { x: 0, y: 0, nx: 0, ny: 0, inside: false };
 const targetRot = { x: 0.08, y: 0.35, z: 0 };
@@ -35,7 +41,7 @@ let activeHotspot = null;
 let zoom = 1.55;
 const ZOOM_MIN = 0.7;
 const ZOOM_MAX = 2.8;
-const _exhaustWorld = new THREE.Vector3();
+const _particleScatter = new THREE.Vector3();
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
@@ -47,7 +53,9 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+const BASE_EXPOSURE = 1.05;
+const BASE_BLOOM = 0.22;
+renderer.toneMappingExposure = BASE_EXPOSURE;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -87,13 +95,37 @@ let exhaustOrigin = { points: [], dir: new THREE.Vector3(0, 0, -1) };
 let aircraftAnimRig = null;
 let gearController = null;
 let weaponsController = null;
+let activeSystem = 'stealth';
+const CONTEXTUAL_SPEED = {
+  stealth: 'Mach 0.95 (LO profile)',
+  supercruise: 'Mach 1.72 · SUPERCRUISE',
+  thrust: 'Nozzle vectoring · AB',
+};
+const SYSTEM_THROTTLE_PCT = {
+  stealth: 12,
+  supercruise: 75,
+  thrust: 88,
+};
+let supercruiseUntil = 0;
+let systemBadgeUntil = 0;
+/** @type {{ from: number, to: number, start: number, duration: number } | null} */
+let throttleAnim = null;
+/** Slider % to restore after Space burst ends. */
+let burstRestorePct = null;
 
 const telemetry = { alt: 42000, hdg: 270, g: 1.0 };
 let hudRefreshTimer = 0;
 
-function showLoadError(message) {
+function formatInitError(err) {
+  if (typeof err === 'string') return err;
+  if (err instanceof Error && err.message) return err.message;
+  return 'Failed to initialize 3D scene.';
+}
+
+function showLoadError(err) {
+  const message = formatInitError(err);
   failLoading(message);
-  console.error('[F-22]', message);
+  console.error('[F-22]', message, err);
 }
 
 initLoadingUI();
@@ -140,6 +172,19 @@ async function init() {
 
     if (jetIsGltf) {
       gltfMaterials = raptor.userData.materials;
+      document.body.dataset.jetModel = 'gltf';
+      console.info('[F-22] Photoreal GLTF loaded.');
+    } else {
+      document.body.dataset.jetModel = 'placeholder';
+      const detail =
+        jet.loadError ||
+        'Run npm run dev:web or npm run dev — do not open index.html directly in the browser.';
+      console.error('[F-22] Placeholder jet only.', detail);
+      if (modeBadge) {
+        modeBadge.textContent = 'PLACEHOLDER MODEL';
+        modeBadge.classList.add('mode-badge--warn');
+        modeBadge.title = detail;
+      }
     }
 
     const ports = jet.enginePorts || [];
@@ -184,51 +229,71 @@ function createExhaustParticles() {
   return points;
 }
 
-function getWorldExhaustPoints() {
+function getExhaustEmits() {
   if (!raptor) return [];
-  const anchors = raptor.userData.exhaustAnchors;
-  if (anchors?.length) {
-    return anchors.map((anchor) => {
-      anchor.getWorldPosition(_exhaustWorld);
-      return _exhaustWorld.clone();
-    });
-  }
+  const tuned = collectExhaustEmits(raptor);
+  if (tuned.length) return tuned;
   if (!exhaustOrigin.points.length) return [];
+  const dir = exhaustOrigin.dir.clone();
+  if (raptor) dir.transformDirection(raptor.matrixWorld).normalize();
   return exhaustOrigin.points.map((local) => {
     const w = local.clone();
     raptor.localToWorld(w);
-    return w;
+    return { position: w, direction: dir.clone() };
   });
+}
+
+function isAfterburnerBursting() {
+  return performance.now() < burstUntil;
+}
+
+function getAfterburnerLevel() {
+  if (isAfterburnerBursting()) return 1;
+  const visuals = getSystemVisuals();
+  return Math.min(1, throttle * visuals.abMult);
+}
+
+function triggerAfterburnerBurst() {
+  burstRestorePct = Math.round(throttle * 100);
+  burstUntil = performance.now() + 1500;
+  throttleAnim = null;
+  throttle = 1;
+  syncThrottleUI();
+  flashModeBadge('AFTERBURNER', 1500);
 }
 
 function updateParticles(dt) {
   const positions = particles.geometry.attributes.position.array;
-  const intensity =
-    Math.max(throttle, burstUntil > performance.now() ? 1 : 0) * 0.85;
+  const intensity = getAfterburnerLevel() * 0.85;
   particles.material.opacity = intensity * 0.55;
 
-  const ports = getWorldExhaustPoints();
-  const dir = exhaustOrigin.dir.clone();
-  if (raptor) dir.transformDirection(raptor.matrixWorld).normalize();
+  const emits = getExhaustEmits();
 
   for (let i = 0; i < positions.length / 3; i++) {
     const v = particles.userData.velocities[i];
-    if (ports.length && Math.random() < intensity * 0.35) {
-      const port = ports[Math.floor(Math.random() * ports.length)];
+    if (emits.length && Math.random() < intensity * 0.35) {
+      const emit = emits[Math.floor(Math.random() * emits.length)];
+      const port = emit.position;
+      const dir = emit.direction;
       positions[i * 3] = port.x + (Math.random() - 0.5) * 0.08;
       positions[i * 3 + 1] = port.y + (Math.random() - 0.5) * 0.06;
       positions[i * 3 + 2] = port.z + (Math.random() - 0.5) * 0.08;
       v.copy(dir).multiplyScalar(3 + Math.random() * 4);
-      v.y += (Math.random() - 0.5) * 0.3;
+      _particleScatter.set(
+        (Math.random() - 0.5) * 0.3,
+        (Math.random() - 0.5) * 0.3,
+        (Math.random() - 0.5) * 0.3
+      );
+      v.add(_particleScatter);
     }
     positions[i * 3] += v.x * dt;
     positions[i * 3 + 1] += v.y * dt;
     positions[i * 3 + 2] += v.z * dt;
-    if (ports.length && v.length() > 12) {
-      const port = ports[i % ports.length];
-      positions[i * 3] = port.x;
-      positions[i * 3 + 1] = port.y;
-      positions[i * 3 + 2] = port.z;
+    if (emits.length && v.length() > 12) {
+      const emit = emits[i % emits.length];
+      positions[i * 3] = emit.position.x;
+      positions[i * 3 + 1] = emit.position.y;
+      positions[i * 3 + 2] = emit.position.z;
       v.set(0, 0, 0);
     }
   }
@@ -287,7 +352,7 @@ function updateHotspot(hitMesh, x, y) {
         : 'Move cursor over the aircraft';
       hoverDetail.textContent = mouse.inside
         ? 'Bank and pitch follow your mouse. Use the afterburner slider for engine glow.'
-        : 'Photoreal F-22 model with HDR sky lighting — hover to maneuver.';
+        : 'Photoreal F-22 Raptor model with HDR sky lighting — hover to maneuver.';
       hoverCard.classList.remove('hot');
       tooltip.classList.add('hidden');
     }
@@ -323,17 +388,13 @@ canvas.addEventListener('pointerleave', () => {
   tooltip.classList.add('hidden');
   hoverZone.textContent = 'Move cursor over the aircraft';
   hoverDetail.textContent =
-    'Photoreal F-22 model with HDR sky lighting — hover to maneuver.';
+    'Photoreal F-22 Raptor model with HDR sky lighting — hover to maneuver.';
 });
 
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Space') {
+  if ((e.code === 'Space' || e.key === ' ') && !e.repeat) {
     e.preventDefault();
-    burstUntil = performance.now() + 1200;
-    modeBadge.textContent = 'AFTERBURNER';
-    setTimeout(() => {
-      modeBadge.textContent = 'INTERACTIVE';
-    }, 1200);
+    triggerAfterburnerBurst();
   }
   if (e.key >= '1' && e.key <= '6') {
     setCameraPreset(parseInt(e.key, 10) - 1);
@@ -358,6 +419,113 @@ if (weaponsToggle) {
     if (!weaponsController) return;
     weaponsController.setDeployed(weaponsToggle.checked);
   });
+}
+
+function syncContextualSpeed() {
+  if (!statSpeedContextEl) return;
+  if (
+    activeSystem === 'supercruise' &&
+    performance.now() < supercruiseUntil
+  ) {
+    statSpeedContextEl.textContent = CONTEXTUAL_SPEED.supercruise;
+    return;
+  }
+  statSpeedContextEl.textContent =
+    CONTEXTUAL_SPEED[activeSystem] ?? '—';
+}
+
+function flashModeBadge(text, ms = 2200) {
+  if (!modeBadge) return;
+  modeBadge.textContent = text;
+  systemBadgeUntil = performance.now() + ms;
+}
+
+function syncThrottleUI() {
+  const pct = Math.round(throttle * 100);
+  if (throttleInput) throttleInput.value = String(pct);
+  if (throttleVal) throttleVal.textContent = `${pct}%`;
+}
+
+function setThrottlePercent(percent, animateMs = 0) {
+  const target = THREE.MathUtils.clamp(percent / 100, 0, 1);
+  if (!animateMs) {
+    throttleAnim = null;
+    throttle = target;
+    syncThrottleUI();
+    return;
+  }
+  throttleAnim = {
+    from: throttle,
+    to: target,
+    start: performance.now(),
+    duration: animateMs,
+  };
+}
+
+function updateThrottleAnimation() {
+  if (!throttleAnim) return;
+  const t = (performance.now() - throttleAnim.start) / throttleAnim.duration;
+  if (t >= 1) {
+    throttle = throttleAnim.to;
+    throttleAnim = null;
+  } else {
+    const ease = t * t * (3 - 2 * t);
+    throttle = throttleAnim.from + (throttleAnim.to - throttleAnim.from) * ease;
+  }
+  syncThrottleUI();
+}
+
+function syncThrottleWithThrustVectorDemo() {
+  const demo = raptor?.userData?.thrustVectorDemo;
+  if (!demo) return false;
+  const t = demo.elapsed / demo.duration;
+  throttle = 0.7 + Math.sin(t * Math.PI * 2) * 0.2;
+  syncThrottleUI();
+  return true;
+}
+
+function applySystemMode(sys) {
+  activeSystem = sys;
+  const pct = SYSTEM_THROTTLE_PCT[sys] ?? Math.round(throttle * 100);
+
+  if (sys === 'stealth') {
+    setThrottlePercent(pct, 900);
+    syncContextualSpeed();
+    flashModeBadge('STEALTH');
+    return;
+  }
+
+  if (sys === 'supercruise') {
+    setThrottlePercent(pct, 700);
+    supercruiseUntil = performance.now() + 8000;
+    burstUntil = performance.now() + 1500;
+    syncContextualSpeed();
+    flashModeBadge('SUPERCRUISE');
+    return;
+  }
+
+  if (sys === 'thrust') {
+    if (raptor) startThrustVectorDemo(raptor);
+    setThrottlePercent(pct, 800);
+    syncContextualSpeed();
+    setCameraPreset(3);
+    burstUntil = performance.now() + 1200;
+    flashModeBadge('THRUST VECTOR', 5600);
+  }
+}
+
+function getSystemVisuals() {
+  if (activeSystem === 'stealth') {
+    return { abMult: 0.32, exposure: 0.86, bloom: 0.09, radarSpeed: 0.55 };
+  }
+  if (activeSystem === 'supercruise') {
+    const boost = performance.now() < supercruiseUntil ? 1.2 : 1;
+    return { abMult: 1.15 * boost, exposure: 1.12, bloom: 0.3, radarSpeed: 1.35 };
+  }
+  if (activeSystem === 'thrust') {
+    return { abMult: 1.05, exposure: BASE_EXPOSURE, bloom: BASE_BLOOM, radarSpeed: 1 };
+  }
+  return { abMult: 1, exposure: BASE_EXPOSURE, bloom: BASE_BLOOM, radarSpeed: 1 };
 }
 
 function toggleGear() {
@@ -420,23 +588,14 @@ document.querySelectorAll('.pill').forEach((pill) => {
   pill.addEventListener('click', () => {
     document.querySelectorAll('.pill').forEach((p) => p.classList.remove('active'));
     pill.classList.add('active');
-    const sys = pill.dataset.system;
-    if (sys === 'supercruise') {
-      throttleInput.value = 75;
-      throttle = 0.75;
-      throttleVal.textContent = '75%';
-    } else if (sys === 'thrust') {
-      targetRot.z = 0.35;
-      setTimeout(() => {
-        targetRot.z = 0;
-      }, 600);
-    }
+    applySystemMode(pill.dataset.system);
   });
 });
 
 throttleInput.addEventListener('input', () => {
+  throttleAnim = null;
   throttle = throttleInput.value / 100;
-  throttleVal.textContent = `${throttleInput.value}%`;
+  syncThrottleUI();
 });
 
 function syncCameraZoomUI() {
@@ -457,6 +616,7 @@ if (cameraZoomInput) {
 }
 
 let radarAngle = 0;
+let radarSpinMul = 1;
 function drawRadar() {
   const ctx = radarCanvas.getContext('2d');
   const w = radarCanvas.width;
@@ -480,7 +640,7 @@ function drawRadar() {
   ctx.lineTo(cx + r, cy);
   ctx.stroke();
 
-  radarAngle += 0.04;
+  radarAngle += 0.04 * radarSpinMul;
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(radarAngle);
@@ -556,16 +716,57 @@ function animate() {
     jetGroup.rotation.set(currentRot.x, currentRot.y, currentRot.z);
     jetGroup.position.y = Math.sin(t * 0.7) * 0.04;
   }
+  const rollNorm = mouse.inside
+    ? THREE.MathUtils.clamp(-mouse.nx, -1, 1)
+    : THREE.MathUtils.clamp(currentRot.z / 0.22, -1, 1);
+
+  const hadTvDemo = !!raptor?.userData?.thrustVectorDemo;
+  if (raptor) updateThrustVectorDemo(raptor, dt);
+  const hasTvDemo = !!raptor?.userData?.thrustVectorDemo;
+  if (hadTvDemo && !hasTvDemo && activeSystem === 'thrust') {
+    setThrottlePercent(SYSTEM_THROTTLE_PCT.thrust, 500);
+  }
+
+  if (isAfterburnerBursting()) {
+    throttle = 1;
+    syncThrottleUI();
+  } else {
+    if (burstRestorePct !== null) {
+      setThrottlePercent(burstRestorePct, 450);
+      burstRestorePct = null;
+    }
+    if (!syncThrottleWithThrustVectorDemo()) {
+      updateThrottleAnimation();
+    }
+  }
+
   if (aircraftAnimRig) {
-    aircraftAnimRig.update(dt);
+    aircraftAnimRig.update(dt, rollNorm);
   } else {
     gearController?.update(dt);
     weaponsController?.update(dt);
   }
 
-  const ab = throttle + (burstUntil > performance.now() ? 0.7 : 0);
-  if (afterburner) setAfterburnerIntensity(afterburner, Math.min(1, ab));
-  if (post?.bloom) post.bloom.strength = 0.18 + ab * 0.2;
+  const visuals = getSystemVisuals();
+  radarSpinMul = visuals.radarSpeed;
+
+  const ab = getAfterburnerLevel();
+  if (afterburner) setAfterburnerIntensity(afterburner, ab);
+
+  const bursting = isAfterburnerBursting();
+  renderer.toneMappingExposure = bursting ? BASE_EXPOSURE : visuals.exposure;
+  if (post?.bloom) {
+    const bloomBase = bursting ? BASE_BLOOM : visuals.bloom;
+    post.bloom.strength =
+      bloomBase + ab * (bursting || activeSystem !== 'stealth' ? 0.22 : 0.06);
+  }
+
+  syncContextualSpeed();
+
+  if (systemBadgeUntil > 0 && performance.now() > systemBadgeUntil && modeBadge) {
+    if (modeBadge.textContent !== 'INTERACTIVE') modeBadge.textContent = 'INTERACTIVE';
+    systemBadgeUntil = 0;
+  }
 
   const preset = CAMERA_PRESETS[cameraMode];
   _camDesired.copy(preset.pos).multiplyScalar(zoom);
