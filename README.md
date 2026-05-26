@@ -6,11 +6,33 @@ Interactive 3D F-22 Raptor — hover to maneuver, afterburner effects, radar HUD
 
 **https://pyastreboff.github.io/F-22_Raptor_Fanpage/**
 
+## Clone and install for yourself
+
+1. Install prerequisites:
+   - Git
+   - Node.js (use an up-to-date LTS release)
+2. Clone the repo:
+```bash
+git clone https://github.com/PYastreboff/F-22_Raptor_Fanpage.git
+cd F-22_Raptor_Fanpage
+```
+3. Install dependencies:
+```bash
+npm install
+```
+4. Run it:
+```bash
+npm run dev          # Electron + hot reload
+```
+   To run in a browser tab instead of Electron:
+```bash
+npm run dev:web
+```
+
 ## Run locally
 
 ```bash
-npm install
-npm run dev          # Electron + hot reload
+npm run dev          # Electron + hot reload (after `npm install` above)
 ```
 
 Browser only (no Electron window):
