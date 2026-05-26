@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Peter's F-22 Raptor Command</title>
+    <script>
+      (function () {
+        var path = window.location.pathname;
+        if (path && !path.endsWith('/') && !/\.[a-z0-9]+$/i.test(path)) {
+          window.location.replace(path + '/' + window.location.search + window.location.hash);
+          return;
+        }
+        var base = path.replace(/[^/]*$/, '');
+        if (!base.endsWith('/')) base += '/';
+        var root = window.location.origin + base;
+        window.__F22_ASSET_ROOT__ = root;
+        [
+          ['icon', 'favicon.ico', 'image/x-icon'],
+          ['icon', 'favicon.svg', 'image/svg+xml'],
+          ['icon', 'favicon-32.png', 'image/png', '32x32'],
+          ['icon', 'favicon-16.png', 'image/png', '16x16'],
+          ['apple-touch-icon', 'apple-touch-icon.png', 'image/png'],
+        ].forEach(function (args) {
+          var link = document.createElement('link');
+          link.rel = args[0];
+          link.href = root + args[1];
+          if (args[2]) link.type = args[2];
+          if (args[3]) link.sizes = args[3];
+          document.head.appendChild(link);
+        });
+      })();
+    </script>
+    <style>
+      html, body { margin: 0; background: #0a1520; color: #c8e6f0; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <script type="module" crossorigin src="./assets/index-BfzfETN4.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BZ2kDEl4.css">
+  </head>
+  <body>
+    <div id="loading-screen" role="status" aria-live="polite" aria-busy="true">
+      <div class="loading-panel">
+        <p class="loading-tag">TACTICAL INTERFACE</p>
+        <h1 class="loading-title">Peter's <span>F-22</span> Raptor Command</h1>
+        <p class="loading-status" id="load-status">Initializing…</p>
+        <div class="loading-bar-track" aria-hidden="true">
+          <div class="loading-bar-fill" id="load-progress-bar"></div>
+        </div>
+        <p class="loading-percent" id="load-percent">0%</p>
+        <p class="loading-hint">Loading photoreal model &amp; environment</p>
+        <p id="load-mobile-message" class="loading-mobile-message" hidden></p>
+      </div>
+    </div>
+    <div id="load-error" role="alert">
+      <div>
+        <p><strong>Peter's F-22 Raptor Command failed to load.</strong></p>
+        <p id="load-error-detail">Check the browser console for details.</p>
+        <p style="margin-top:1rem;font-size:0.9rem;opacity:0.8">
+          GitHub Pages must deploy the Vite <code>dist/</code> build — not raw source.
+          Use <em>Settings → Pages → GitHub Actions</em>, or branch <code>gh-pages</code> / root.
+        </p>
+      </div>
+    </div>
+    <div id="app">
+      <canvas id="scene"></canvas>
+
+      <div class="hud-overlay" aria-hidden="true">
+        <div class="scanlines"></div>
+        <div class="vignette"></div>
+        <div class="corner-bracket tl"></div>
+        <div class="corner-bracket tr"></div>
+        <div class="corner-bracket bl"></div>
+        <div class="corner-bracket br"></div>
+        <div class="radar" id="radar">
+          <canvas id="radar-canvas" width="140" height="140"></canvas>
+          <span class="radar-label">TWS</span>
+        </div>
+      </div>
+
+      <header class="top-bar">
+        <div class="logo">
+          <span class="logo-accent">Peter's F-22</span>
+          <span class="logo-sub">Raptor Command</span>
+        </div>
+        <div class="status-pills">
+          <span class="pill active" data-system="stealth">STEALTH</span>
+          <span class="pill" data-system="supercruise">SUPERCRUISE</span>
+          <span class="pill" data-system="thrust">THRUST VECTOR</span>
+        </div>
+      </header>
+
+      <aside class="spec-panel left">
+        <h2>PLATFORM</h2>
+        <dl id="spec-list">
+          <div><dt>Designation</dt><dd>F-22A Raptor</dd></div>
+          <div><dt>Role</dt><dd>Air dominance fighter</dd></div>
+          <div><dt>First flight</dt><dd>7 Sep 1997</dd></div>
+          <div><dt>Service entry</dt><dd>15 Dec 2005</dd></div>
+          <div><dt>Max speed</dt><dd class="highlight" id="stat-speed-max">Mach 2.25+</dd></div>
+          <div><dt>Contextual max speed</dt><dd id="stat-speed-context">Mach 0.95 (LO profile)</dd></div>
+          <div><dt>Combat radius</dt><dd>~460 nmi</dd></div>
+          <div><dt>Engines</dt><dd>2× Pratt & Whitney F119</dd></div>
+          <div><dt>Thrust (with AB)</dt><dd>~70,000 lbf total</dd></div>
+        </dl>
+      </aside>
+
+      <aside class="spec-panel right">
+        <h2>HOVER INTEL</h2>
+        <div id="hover-card" class="hover-card">
+          <p class="hover-zone" id="hover-zone">Move cursor over the aircraft</p>
+          <p class="hover-detail" id="hover-detail">
+            The 3D model tracks your mouse — bank, pitch, and roll respond in real time.
+            Explore hotspots on the airframe for subsystem details.
+          </p>
+        </div>
+        <div class="weather-picker">
+          <span>WEATHER</span>
+          <div class="weather-btns">
+            <button type="button" class="weather active" data-weather="clear">Clear</button>
+            <button type="button" class="weather" data-weather="cloudy">Cloudy</button>
+            <button type="button" class="weather" data-weather="overcast">Gray</button>
+            <button type="button" class="weather" data-weather="rain">Rain</button>
+            <button type="button" class="weather" data-weather="storm">Storm</button>
+            <button type="button" class="weather" data-weather="night">Night</button>
+          </div>
+        </div>
+        <div class="scheme-picker">
+          <span>LIVERY</span>
+          <div class="scheme-btns">
+            <button type="button" class="scheme active" data-scheme="stealth" title="Low-observable gray">Stealth</button>
+            <button type="button" class="scheme" data-scheme="arctic" title="Arctic white">Arctic</button>
+            <button type="button" class="scheme" data-scheme="aggressor" title="Aggressor blue">Aggressor</button>
+          </div>
+        </div>
+        <div class="throttle-wrap">
+          <label for="camera-zoom">CAMERA DISTANCE</label>
+          <input type="range" id="camera-zoom" min="70" max="280" value="155" />
+          <span id="camera-zoom-val">155%</span>
+        </div>
+        <div class="throttle-wrap">
+          <label for="throttle">AFTERBURNER</label>
+          <input type="range" id="throttle" min="0" max="100" value="35" />
+          <span id="throttle-val">35%</span>
+        </div>
+        <label class="toggle-option">
+          <input type="checkbox" id="gear-toggle" />
+          <span>LANDING GEAR DOWN</span>
+        </label>
+        <label class="toggle-option weapons-option">
+          <input type="checkbox" id="weapons-toggle" />
+          <span>WEAPONS BAY OPEN</span>
+        </label>
+        <button type="button" id="fire-button" class="fire-button" disabled>
+          FIRE
+        </button>
+        <button type="button" id="reload-missiles" class="fire-button reload-button">
+          RELOAD MISSILES
+        </button>
+      </aside>
+
+      <footer class="bottom-bar">
+        <div class="coords" id="coords">ALT 42,000 ft · HDG 270° · G 1.0</div>
+        <div class="hints">
+          <kbd>1</kbd>–<kbd>6</kbd> cameras ·
+          camera slider ·
+          <kbd>G</kbd> gear ·
+          <kbd>W</kbd> weapons ·
+          <kbd>F</kbd> fire ·
+          <kbd>R</kbd> reload ·
+          <kbd>Space</kbd> AB ·
+          hover to spin
+        </div>
+        <div class="mode-badge" id="mode-badge">INTERACTIVE</div>
+      </footer>
+
+      <div id="hotspot-tooltip" class="hotspot-tooltip hidden" role="tooltip"></div>
+    </div>
+    <script>
+      (function () {
+        var el = document.getElementById('app-entry');
+        if (!el) return;
+        el.addEventListener('error', function () {
+          var loading = document.getElementById('loading-screen');
+          if (loading) loading.classList.add('is-hidden');
+          var box = document.getElementById('load-error');
+          var detail = document.getElementById('load-error-detail');
+          if (box) box.classList.add('visible');
+          if (detail) {
+            detail.textContent =
+              'App bundle failed to load. On GitHub Pages, set Source to GitHub Actions (or gh-pages branch), not main / root.';
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>
