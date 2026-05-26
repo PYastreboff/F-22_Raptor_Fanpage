@@ -9,6 +9,38 @@ let screen;
 let bar;
 let statusEl;
 let pctEl;
+let progressBlock;
+
+export function isPhoneDevice() {
+  const ua = navigator.userAgent || '';
+  const phoneUa =
+    /iPhone|iPod|Android.*Mobile|Windows Phone|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+  const narrowTouch =
+    window.matchMedia('(max-width: 768px)').matches &&
+    navigator.maxTouchPoints > 0 &&
+    window.matchMedia('(pointer: coarse)').matches;
+  return phoneUa || narrowTouch;
+}
+
+export function showDesktopOnlyScreen() {
+  if (!screen) return;
+  screen.classList.add('is-mobile-blocked');
+  screen.setAttribute('aria-busy', 'false');
+
+  if (progressBlock) progressBlock.hidden = true;
+  if (statusEl) statusEl.textContent = 'DESKTOP REQUIRED';
+  if (pctEl) pctEl.hidden = true;
+
+  const hint = document.querySelector('.loading-hint');
+  if (hint) hint.hidden = true;
+
+  const msg = document.getElementById('load-mobile-message');
+  if (msg) {
+    msg.hidden = false;
+    msg.textContent =
+      'This experience is built for desktop. Please open Peter\'s F-22 Raptor Command on a computer.';
+  }
+}
 
 function stepLabel(progress) {
   for (const step of LOADING_STEPS) {
@@ -22,6 +54,7 @@ export function initLoadingUI() {
   bar = document.getElementById('load-progress-bar');
   statusEl = document.getElementById('load-status');
   pctEl = document.getElementById('load-percent');
+  progressBlock = document.querySelector('.loading-bar-track');
 }
 
 export function setLoadProgress(progress, label) {

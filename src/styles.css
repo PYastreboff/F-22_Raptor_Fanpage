@@ -134,6 +134,23 @@ body.app-ready #app {
   letter-spacing: 0.04em;
 }
 
+#loading-screen.is-mobile-blocked .loading-status {
+  color: var(--amber);
+}
+
+.loading-mobile-message {
+  margin-top: 1.25rem;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: #e8f4fa;
+  letter-spacing: 0.03em;
+}
+
+#loading-screen.is-mobile-blocked ~ #app {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 #load-error {
   display: none;
   position: fixed;

@@ -8,7 +8,14 @@ import {
   resolveHotspotFromMesh,
   findProximityHotspot,
 } from './hotspots.js';
-import { initLoadingUI, setLoadProgress, hideLoading, failLoading } from './loading.js';
+import {
+  initLoadingUI,
+  isPhoneDevice,
+  setLoadProgress,
+  hideLoading,
+  failLoading,
+  showDesktopOnlyScreen,
+} from './loading.js';
 import {
   collectExhaustEmits,
   startThrustVectorDemo,
@@ -139,8 +146,10 @@ function showLoadError(err) {
   console.error('[F-22]', message, err);
 }
 
+const mobileBlocked = isPhoneDevice();
+let appReady = false;
+
 initLoadingUI();
-setLoadProgress(0.02, 'Initializing renderer…');
 
 async function init() {
   try {
@@ -212,12 +221,18 @@ async function init() {
 
     setLoadProgress(1, 'Systems online');
     hideLoading();
+    appReady = true;
   } catch (err) {
     showLoadError(err?.message || 'Failed to initialize 3D scene.');
   }
 }
 
-init();
+if (mobileBlocked) {
+  showDesktopOnlyScreen();
+} else {
+  setLoadProgress(0.02, 'Initializing renderer…');
+  init();
+}
 
 const particles = createExhaustParticles();
 scene.add(particles);
@@ -1199,6 +1214,7 @@ const clock = new THREE.Clock();
 
 function animate() {
   requestAnimationFrame(animate);
+  if (!appReady) return;
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = performance.now() * 0.001;
 
