@@ -719,12 +719,13 @@ function collectMissileInventory(model) {
   return slots;
 }
 
-/** Outboard + forward corner from actual mesh geometry (not group pivot). */
+/** Spawn at rack center laterally, nose at forward tip of missile geometry. */
 function computeMissileSpawnWorld(slot, model) {
   const meshes = getSlotMeshes(slot);
   const axes = resolveJetAxes(model);
   const lat = axes.lateral;
   const forward = axes.forward;
+  const bodyFwd = forward.dot(axes.bodyCenter);
 
   _missileBox.makeEmpty();
   for (const mesh of meshes) {
@@ -734,33 +735,31 @@ function computeMissileSpawnWorld(slot, model) {
 
   const center = _missileBox.getCenter(_missileSpawn);
   const sign = Math.sign(center[lat] - axes.bodyCenter[lat]) || 1;
-  const bodyHalf = (axes.bodyBox.max[lat] - axes.bodyBox.min[lat]) * 0.5;
+  const outboardLat = sign > 0 ? _missileBox.max[lat] : _missileBox.min[lat];
 
-  let best = center.clone();
-  let bestScore = -Infinity;
+  // Slight outboard bias from mesh center (not the extreme bbox corner).
+  const spawn = center.clone();
+  spawn[lat] = THREE.MathUtils.lerp(center[lat], outboardLat, 0.22);
+
+  let bestFwd = -Infinity;
   const { min, max } = _missileBox;
   for (const x of [min.x, max.x]) {
     for (const y of [min.y, max.y]) {
       for (const z of [min.z, max.z]) {
         _tmpV.set(x, y, z);
-        const lateralOut = sign * (_tmpV[lat] - axes.bodyCenter[lat]);
-        const score =
-          lateralOut * 2.2 + (forward.dot(_tmpV) - forward.dot(axes.bodyCenter));
-        if (score > bestScore) {
-          bestScore = score;
-          best.copy(_tmpV);
+        const f = forward.dot(_tmpV) - bodyFwd;
+        if (f > bestFwd) {
+          bestFwd = f;
+          spawn.x = _tmpV.x;
+          spawn.y = _tmpV.y;
+          spawn.z = _tmpV.z;
         }
       }
     }
   }
+  spawn[lat] = THREE.MathUtils.lerp(center[lat], outboardLat, 0.22);
 
-  const outDist = Math.abs(best[lat] - axes.bodyCenter[lat]);
-  const minOut = bodyHalf * 0.3;
-  if (outDist < minOut) {
-    best[lat] = axes.bodyCenter[lat] + sign * minOut;
-  }
-
-  return best;
+  return spawn;
 }
 
 function nudgeCloneToWorldPoint(clone, worldPoint) {
