@@ -118,7 +118,7 @@ export function loadJetModel(envMap, onProgress) {
   });
 }
 
-/** Windscreen: gold-amber F-22 canopy tint; opaque so empty cockpit geometry does not show through. */
+/** Windscreen: dark brown F-22 canopy tint; opaque so empty cockpit geometry does not show through. */
 function tuneCanopyGlass(mat) {
   mat.transmission = 0;
   mat.thickness = 0;
@@ -126,14 +126,13 @@ function tuneCanopyGlass(mat) {
   mat.opacity = 1;
   mat.depthWrite = true;
   mat.side = THREE.FrontSide;
-  mat.metalness = 0.22;
-  mat.roughness = 0.1;
-  // Reflective canopy coating — warm yellow-orange, not blue cockpit glass
-  mat.color.setRGB(0.42, 0.27, 0.07);
-  if (mat.specularColor) mat.specularColor.setRGB(0.55, 0.36, 0.1);
-  mat.envMapIntensity = 1.25;
-  mat.clearcoat = 0.9;
-  mat.clearcoatRoughness = 0.06;
+  mat.metalness = 0.26;
+  mat.roughness = 0.14;
+  mat.color.setRGB(0.12, 0.07, 0.025);
+  if (mat.specularColor) mat.specularColor.setRGB(0.18, 0.11, 0.04);
+  mat.envMapIntensity = 0.82;
+  mat.clearcoat = 0.85;
+  mat.clearcoatRoughness = 0.08;
 }
 
 function enhanceMaterials(root, envMap) {
