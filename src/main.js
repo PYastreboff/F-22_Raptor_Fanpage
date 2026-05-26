@@ -100,9 +100,12 @@ let weaponsController = null;
 let missileInventory = [];
 const missileProjectiles = [];
 let fireCooldownUntil = 0;
+const MISSILE_FLIGHT_SCALE = 1.65;
+const MISSILE_TRAIL_LENGTH = 2.1;
 const _tmpV = new THREE.Vector3();
-const _tmpQ = new THREE.Quaternion();
-const _tmpS = new THREE.Vector3();
+const _missileBox = new THREE.Box3();
+const _missileSpawn = new THREE.Vector3();
+const _missileCenter = new THREE.Vector3();
 let activeSystem = 'stealth';
 const CONTEXTUAL_SPEED = {
   stealth: 'Mach 0.95 (LO profile)',
@@ -419,6 +422,15 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'w' || e.key === 'W') {
     toggleWeapons();
   }
+  if (isTypingInForm(e.target)) return;
+  if (e.key === 'f' || e.key === 'F') {
+    e.preventDefault();
+    fireOneMissile();
+  }
+  if (e.key === 'r' || e.key === 'R') {
+    e.preventDefault();
+    reloadMissiles();
+  }
 });
 
 if (gearToggle) {
@@ -573,47 +585,241 @@ function toggleWeapons() {
   }, 900);
 }
 
-function collectMissileInventory(model) {
-  const found = [];
-  model.updateMatrixWorld(true);
+function isTypingInForm(target) {
+  if (!target) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+}
 
-  const isRocketMesh = (mesh) => {
-    const mat = mesh.material;
-    const names = Array.isArray(mat) ? mat.map((m) => m?.name || '') : [mat?.name || ''];
-    return names.some((n) => /rocket/i.test(n));
-  };
+function isRocketMaterial(mesh) {
+  const mat = mesh.material;
+  const names = Array.isArray(mat) ? mat.map((m) => m?.name || '') : [mat?.name || ''];
+  return names.some((n) => /rocket/i.test(n));
+}
 
-  const allMeshesMatch = (root) => {
-    let anyMesh = false;
-    let ok = true;
-    root.traverse((c) => {
-      if (!ok || !c.isMesh) return;
-      anyMesh = true;
-      if (!isRocketMesh(c)) ok = false;
-    });
-    return anyMesh && ok;
-  };
-
-  const rocketRootFor = (mesh) => {
-    // Start at the mesh, climb while the whole subtree is still "rocket-only".
-    let root = mesh;
-    while (root.parent && root.parent !== model) {
-      if (!allMeshesMatch(root.parent)) break;
-      root = root.parent;
-    }
-    return root;
-  };
-
-  model.traverse((child) => {
-    if (!child.isMesh) return;
-    if (!isRocketMesh(child)) return;
-    const root = rocketRootFor(child);
-    // Safety: never allow the entire aircraft root to be treated as a missile.
-    if (root === model) return;
-    if (root.parent === null) return;
-    if (!found.find((x) => x.root === root)) found.push({ root, fired: false });
+function subtreeIsRocketOnly(root) {
+  let anyMesh = false;
+  let ok = true;
+  root.traverse((c) => {
+    if (!ok || !c.isMesh) return;
+    anyMesh = true;
+    if (!isRocketMaterial(c)) ok = false;
   });
-  return found;
+  return anyMesh && ok;
+}
+
+/**
+ * One slot per physical missile: merge Main/Blue/Black mesh siblings (same parent),
+ * stop before a parent holds multiple missile assemblies.
+ */
+function rocketAssemblyRoot(mesh, model) {
+  let root = mesh;
+  while (root.parent && root.parent !== model) {
+    const parent = root.parent;
+    if (!subtreeIsRocketOnly(parent)) break;
+
+    const meshParts = parent.children.filter((c) => c.isMesh && isRocketMaterial(c));
+    if (meshParts.length > 1) {
+      root = parent;
+      break;
+    }
+
+    const assemblies = parent.children.filter((c) => subtreeIsRocketOnly(c));
+    if (assemblies.length > 1) break;
+
+    root = parent;
+  }
+  return root;
+}
+
+function getSlotMeshes(slot) {
+  if (slot.meshes?.length) return slot.meshes;
+  const meshes = [];
+  slot.root?.traverse((c) => {
+    if (c.isMesh && isRocketMaterial(c)) meshes.push(c);
+  });
+  return meshes;
+}
+
+function clusterMeshesIntoSlots(meshes, model) {
+  if (!meshes.length) return [];
+  const axes = resolveJetAxes(model);
+  const lat = axes.lateral;
+  const span = axes.bodyBox.max[lat] - axes.bodyBox.min[lat];
+  const threshold = Math.max(span * 0.07, 0.02);
+
+  const entries = meshes.map((mesh) => {
+    mesh.updateMatrixWorld(true, false);
+    _missileBox.setFromObject(mesh);
+    return { mesh, c: _missileBox.getCenter(new THREE.Vector3()) };
+  });
+  entries.sort((a, b) => a.c[lat] - b.c[lat]);
+
+  const clusters = [];
+  let group = [entries[0]];
+  for (let i = 1; i < entries.length; i++) {
+    if (entries[i].c[lat] - entries[i - 1].c[lat] > threshold) {
+      clusters.push(group);
+      group = [];
+    }
+    group.push(entries[i]);
+  }
+  clusters.push(group);
+
+  return clusters.map((cluster) => ({
+    meshes: cluster.map((e) => e.mesh),
+    root: cluster[0].mesh.parent,
+    fired: false,
+  }));
+}
+
+function collectMissileInventory(model) {
+  const meshes = [];
+  model.updateMatrixWorld(true);
+  model.traverse((child) => {
+    if (!child.isMesh || !isRocketMaterial(child)) return;
+    meshes.push(child);
+  });
+
+  const byRoot = new Map();
+  for (const mesh of meshes) {
+    const root = rocketAssemblyRoot(mesh, model);
+    if (root === model) continue;
+    if (!byRoot.has(root)) byRoot.set(root, []);
+    const list = byRoot.get(root);
+    if (!list.includes(mesh)) list.push(mesh);
+  }
+
+  let slots = [...byRoot.entries()].map(([root, meshList]) => ({
+    root,
+    meshes: meshList,
+    fired: false,
+  }));
+
+  // Every rocket under one rig → split into port / starboard by world position only.
+  if (slots.length === 1 && slots[0].meshes.length > 3) {
+    slots = clusterMeshesIntoSlots(slots[0].meshes, model);
+  }
+
+  return slots;
+}
+
+/** Outboard + forward corner from actual mesh geometry (not group pivot). */
+function computeMissileSpawnWorld(slot, model) {
+  const meshes = getSlotMeshes(slot);
+  const axes = resolveJetAxes(model);
+  const lat = axes.lateral;
+  const forward = axes.forward;
+
+  _missileBox.makeEmpty();
+  for (const mesh of meshes) {
+    mesh.updateMatrixWorld(true, false);
+    _missileBox.expandByObject(mesh);
+  }
+
+  const center = _missileBox.getCenter(_missileSpawn);
+  const sign = Math.sign(center[lat] - axes.bodyCenter[lat]) || 1;
+  const bodyHalf = (axes.bodyBox.max[lat] - axes.bodyBox.min[lat]) * 0.5;
+
+  let best = center.clone();
+  let bestScore = -Infinity;
+  const { min, max } = _missileBox;
+  for (const x of [min.x, max.x]) {
+    for (const y of [min.y, max.y]) {
+      for (const z of [min.z, max.z]) {
+        _tmpV.set(x, y, z);
+        const lateralOut = sign * (_tmpV[lat] - axes.bodyCenter[lat]);
+        const score =
+          lateralOut * 2.2 + (forward.dot(_tmpV) - forward.dot(axes.bodyCenter));
+        if (score > bestScore) {
+          bestScore = score;
+          best.copy(_tmpV);
+        }
+      }
+    }
+  }
+
+  const outDist = Math.abs(best[lat] - axes.bodyCenter[lat]);
+  const minOut = bodyHalf * 0.3;
+  if (outDist < minOut) {
+    best[lat] = axes.bodyCenter[lat] + sign * minOut;
+  }
+
+  return best;
+}
+
+function nudgeCloneToWorldPoint(clone, worldPoint) {
+  clone.updateMatrixWorld(true, false);
+  _missileBox.setFromObject(clone);
+  _missileBox.getCenter(_missileCenter);
+  clone.position.add(_tmpV.copy(worldPoint).sub(_missileCenter));
+}
+
+function brightenMissileMaterials(root, { flight = false } = {}) {
+  const emissiveIntensity = flight ? 1.15 : 0.5;
+  root.traverse((child) => {
+    if (!child.isMesh) return;
+    const mats = Array.isArray(child.material) ? child.material : [child.material];
+    const upgraded = mats.map((m) => {
+      if (!m) return m;
+      const mat = m.clone();
+      const label = mat.name || '';
+      if (/blue/i.test(label)) {
+        mat.emissive?.setHex(0x44aaff);
+      } else if (/black/i.test(label)) {
+        mat.emissive?.setHex(0x888899);
+      } else {
+        mat.emissive?.setHex(0xffcc66);
+      }
+      if (mat.emissive) mat.emissiveIntensity = emissiveIntensity;
+      mat.metalness = Math.min(mat.metalness ?? 0.5, flight ? 0.35 : 0.5);
+      mat.roughness = Math.max((mat.roughness ?? 0.5) * 0.8, 0.18);
+      mat.color.multiplyScalar(flight ? 1.45 : 1.2);
+      if (typeof mat.envMapIntensity === 'number') {
+        mat.envMapIntensity *= flight ? 1.5 : 1.25;
+      }
+      mat.needsUpdate = true;
+      return mat;
+    });
+    child.material = upgraded.length === 1 ? upgraded[0] : upgraded;
+  });
+}
+
+function disposeMissileObject(obj) {
+  obj.traverse((child) => {
+    if (!child.isMesh) return;
+    const mats = Array.isArray(child.material) ? child.material : [child.material];
+    for (const mat of mats) mat?.dispose?.();
+  });
+}
+
+function createLaunchClone(slot) {
+  const launch = new THREE.Group();
+  for (const mesh of getSlotMeshes(slot)) {
+    launch.attach(mesh.clone());
+  }
+  brightenMissileMaterials(launch, { flight: true });
+  launch.scale.setScalar(MISSILE_FLIGHT_SCALE);
+  return launch;
+}
+
+function getMissileProjectileHead(obj, dir) {
+  _missileBox.setFromObject(obj);
+  const { min, max } = _missileBox;
+  let bestFwd = -Infinity;
+  for (const x of [min.x, max.x]) {
+    for (const y of [min.y, max.y]) {
+      for (const z of [min.z, max.z]) {
+        _tmpV.set(x, y, z);
+        const f = dir.dot(_tmpV);
+        if (f > bestFwd) {
+          bestFwd = f;
+          _missileCenter.copy(_tmpV);
+        }
+      }
+    }
+  }
+  return _missileCenter;
 }
 
 function syncFireButton() {
@@ -634,33 +840,124 @@ function reloadMissiles() {
   for (const m of missileInventory) {
     m.fired = false;
     if (m.root) m.root.visible = true;
+    for (const mesh of getSlotMeshes(m)) {
+      mesh.visible = true;
+    }
   }
   // Remove active projectiles immediately.
   for (let i = missileProjectiles.length - 1; i >= 0; i--) {
-    const p = missileProjectiles[i];
-    scene.remove(p.obj);
-    scene.remove(p.trail);
-    p.trail.geometry.dispose();
-    p.trail.material.dispose();
-    missileProjectiles.splice(i, 1);
+    removeMissileProjectile(i);
   }
   syncFireButton();
   flashModeBadge('RELOADED', 900);
 }
 
+let _missileGlowTexture = null;
+
+function getMissileGlowTexture() {
+  if (_missileGlowTexture) return _missileGlowTexture;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255, 248, 220, 1)');
+  g.addColorStop(0.2, 'rgba(255, 210, 120, 0.9)');
+  g.addColorStop(0.45, 'rgba(255, 140, 50, 0.45)');
+  g.addColorStop(0.7, 'rgba(255, 90, 30, 0.12)');
+  g.addColorStop(1, 'rgba(255, 60, 10, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  _missileGlowTexture = new THREE.CanvasTexture(canvas);
+  _missileGlowTexture.colorSpace = THREE.SRGBColorSpace;
+  return _missileGlowTexture;
+}
+
+/** Soft circular motor glow (radial alpha — no hard square edges). */
+function createMissileMotorGlow() {
+  const tex = getMissileGlowTexture();
+  const makeSprite = (scale, opacity) => {
+    const mat = new THREE.SpriteMaterial({
+      map: tex,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(scale, scale, scale);
+    sprite.userData.glowBaseOpacity = opacity;
+    sprite.frustumCulled = false;
+    return sprite;
+  };
+
+  const group = new THREE.Group();
+  group.add(makeSprite(0.48, 0.55));
+  group.add(makeSprite(0.3, 0.95));
+  return group;
+}
+
+function disposeMissileGlow(glow) {
+  if (!glow) return;
+  glow.traverse((child) => {
+    child.material?.dispose?.();
+  });
+}
+
 function createMissileTrail() {
+  const root = new THREE.Group();
+  root.frustumCulled = false;
+
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(2 * 3), 3));
-  const mat = new THREE.LineBasicMaterial({
-    color: 0xffaa55,
-    transparent: true,
-    opacity: 0.85,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
+  const core = new THREE.Line(
+    geo,
+    new THREE.LineBasicMaterial({
+      color: 0xfff2cc,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  core.frustumCulled = false;
+
+  const haloGeo = new THREE.BufferGeometry();
+  haloGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(2 * 3), 3));
+  const halo = new THREE.Line(
+    haloGeo,
+    new THREE.LineBasicMaterial({
+      color: 0xff8833,
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  halo.frustumCulled = false;
+
+  root.add(core, halo);
+  root.userData.core = core;
+  root.userData.halo = halo;
+  return root;
+}
+
+function removeMissileProjectile(index) {
+  const p = missileProjectiles[index];
+  scene.remove(p.obj);
+  disposeMissileObject(p.obj);
+  scene.remove(p.trail);
+  p.trail.traverse((c) => {
+    c.geometry?.dispose?.();
+    c.material?.dispose?.();
   });
-  const line = new THREE.Line(geo, mat);
-  line.frustumCulled = false;
-  return line;
+  if (p.glow) {
+    scene.remove(p.glow);
+    disposeMissileGlow(p.glow);
+  }
+  missileProjectiles.splice(index, 1);
 }
 
 function updateMissileProjectiles(dt) {
@@ -670,20 +967,39 @@ function updateMissileProjectiles(dt) {
     p.obj.position.addScaledVector(p.dir, p.speed * dt);
     p.speed *= 1.01;
 
-    const head = p.obj.position;
-    const tail = _tmpV.copy(head).addScaledVector(p.dir, -0.65);
-    const pos = p.trail.geometry.attributes.position;
-    pos.setXYZ(0, head.x, head.y, head.z);
-    pos.setXYZ(1, tail.x, tail.y, tail.z);
-    pos.needsUpdate = true;
-    p.trail.material.opacity = Math.max(0, 0.9 - p.age / p.life);
+    const head = getMissileProjectileHead(p.obj, p.dir);
+    const tail = _tmpV.copy(head).addScaledVector(p.dir, -MISSILE_TRAIL_LENGTH);
+    const fade = Math.max(0, 1 - p.age / p.life);
+
+    const core = p.trail.userData.core;
+    const halo = p.trail.userData.halo;
+    if (core) {
+      const pos = core.geometry.attributes.position;
+      pos.setXYZ(0, head.x, head.y, head.z);
+      pos.setXYZ(1, tail.x, tail.y, tail.z);
+      pos.needsUpdate = true;
+      core.material.opacity = fade;
+    }
+    if (halo) {
+      const pos = halo.geometry.attributes.position;
+      pos.setXYZ(0, head.x, head.y, head.z);
+      pos.setXYZ(1, tail.x, tail.y, tail.z);
+      pos.needsUpdate = true;
+      halo.material.opacity = 0.85 * fade;
+    }
+
+    if (p.glow) {
+      p.glow.position.copy(tail);
+      p.glow.traverse((child) => {
+        if (!child.material || child.userData.glowBaseOpacity === undefined) return;
+        child.material.opacity = child.userData.glowBaseOpacity * fade;
+      });
+      const pulse = 1 + Math.sin(p.age * 28) * 0.06;
+      p.glow.scale.set(pulse, pulse, pulse);
+    }
 
     if (p.age >= p.life) {
-      scene.remove(p.obj);
-      scene.remove(p.trail);
-      p.trail.geometry.dispose();
-      p.trail.material.dispose();
-      missileProjectiles.splice(i, 1);
+      removeMissileProjectile(i);
     }
   }
 }
@@ -703,17 +1019,14 @@ function fireOneMissile() {
   if (slot.root === raptor) return;
 
   slot.fired = true;
-  slot.root.visible = false;
+  if (slot.root) slot.root.visible = false;
+  for (const mesh of getSlotMeshes(slot)) {
+    mesh.visible = false;
+  }
 
-  const clone = slot.root.clone(true);
-  slot.root.updateWorldMatrix(true, false);
-  slot.root.getWorldPosition(_tmpV);
-  slot.root.getWorldQuaternion(_tmpQ);
-  slot.root.getWorldScale(_tmpS);
-  clone.position.copy(_tmpV);
-  clone.quaternion.copy(_tmpQ);
-  clone.scale.copy(_tmpS);
+  const clone = createLaunchClone(slot);
   scene.add(clone);
+  nudgeCloneToWorldPoint(clone, computeMissileSpawnWorld(slot, raptor));
 
   const axes = resolveJetAxes(raptor);
   const dir = axes.forward.clone().normalize();
@@ -724,14 +1037,17 @@ function fireOneMissile() {
 
   const trail = createMissileTrail();
   scene.add(trail);
+  const glow = createMissileMotorGlow();
+  scene.add(glow);
 
   missileProjectiles.push({
     obj: clone,
     trail,
+    glow,
     dir,
     speed: 12 + Math.random() * 4,
     age: 0,
-    life: 2.2,
+    life: 2.4,
   });
 
   fireCooldownUntil = performance.now() + 350;
