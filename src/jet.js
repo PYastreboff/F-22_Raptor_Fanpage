@@ -400,16 +400,16 @@ export function createAfterburnerGlow() {
 }
 
 export function setAfterburnerIntensity(glowGroup, t) {
-  const intensity = Math.pow(Math.max(0, Math.min(1, t)), 1.25);
+  const intensity = Math.pow(Math.max(0, Math.min(1, t)), 1.35);
   const flames = glowGroup.userData.flames || [];
   for (let i = 0; i < flames.length; i++) {
     const flame = flames[i];
     const layer = i % 4;
-    flame.material.opacity = intensity * (0.92 - layer * 0.14);
-    const sy = 0.45 + intensity * (2.5 - layer * 0.3);
-    const sx = 0.5 + intensity * (1.15 - layer * 0.08);
+    flame.material.opacity = intensity * (0.72 - layer * 0.11);
+    const sy = 0.4 + intensity * (2.1 - layer * 0.28);
+    const sx = 0.48 + intensity * (1.02 - layer * 0.07);
     flame.scale.set(sx, sy, sx);
-    const hue = 0.09 - intensity * 0.04 - layer * 0.007;
-    flame.material.color.setHSL(hue, 1, 0.4 + intensity * 0.24 - layer * 0.04);
+    const hue = 0.09 - intensity * 0.035 - layer * 0.007;
+    flame.material.color.setHSL(hue, 1, 0.36 + intensity * 0.18 - layer * 0.04);
   }
 }

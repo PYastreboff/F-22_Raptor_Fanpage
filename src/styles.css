@@ -580,6 +580,50 @@ body.app-ready #app {
   accent-color: #ff6644;
 }
 
+.fire-button {
+  margin-top: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 90, 40, 0.55);
+  background: rgba(255, 60, 20, 0.14);
+  color: #ff9a7a;
+  cursor: pointer;
+  transition: transform 0.08s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.fire-button:hover {
+  border-color: rgba(255, 120, 80, 0.85);
+  background: rgba(255, 60, 20, 0.2);
+  transform: translateY(-1px);
+}
+
+.fire-button:active {
+  transform: translateY(0);
+}
+
+.fire-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.reload-button {
+  margin-top: 8px;
+  border-color: rgba(0, 229, 255, 0.45);
+  background: rgba(0, 229, 255, 0.08);
+  color: rgba(160, 230, 240, 0.95);
+}
+
+.reload-button:hover {
+  border-color: rgba(0, 229, 255, 0.85);
+  background: rgba(0, 229, 255, 0.12);
+}
+
 .bottom-bar {
   position: fixed;
   bottom: 0;

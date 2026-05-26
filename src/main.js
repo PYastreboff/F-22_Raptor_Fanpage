@@ -14,6 +14,7 @@ import {
   startThrustVectorDemo,
   updateThrustVectorDemo,
 } from './abTune.js';
+import { resolveJetAxes } from './aircraftSystems.js';
 
 const canvas = document.getElementById('scene');
 const hoverZone = document.getElementById('hover-zone');
@@ -27,6 +28,8 @@ const tooltip = document.getElementById('hotspot-tooltip');
 const radarCanvas = document.getElementById('radar-canvas');
 const gearToggle = document.getElementById('gear-toggle');
 const weaponsToggle = document.getElementById('weapons-toggle');
+const fireButton = document.getElementById('fire-button');
+const reloadMissilesButton = document.getElementById('reload-missiles');
 const cameraZoomInput = document.getElementById('camera-zoom');
 const cameraZoomVal = document.getElementById('camera-zoom-val');
 const statSpeedContextEl = document.getElementById('stat-speed-context');
@@ -54,7 +57,6 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 const BASE_EXPOSURE = 1.05;
-const BASE_BLOOM = 0.22;
 renderer.toneMappingExposure = BASE_EXPOSURE;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -95,6 +97,12 @@ let exhaustOrigin = { points: [], dir: new THREE.Vector3(0, 0, -1) };
 let aircraftAnimRig = null;
 let gearController = null;
 let weaponsController = null;
+let missileInventory = [];
+const missileProjectiles = [];
+let fireCooldownUntil = 0;
+const _tmpV = new THREE.Vector3();
+const _tmpQ = new THREE.Quaternion();
+const _tmpS = new THREE.Vector3();
 let activeSystem = 'stealth';
 const CONTEXTUAL_SPEED = {
   stealth: 'Mach 0.95 (LO profile)',
@@ -169,6 +177,7 @@ async function init() {
     } else if (weaponsToggle) {
       weaponsToggle.disabled = true;
     }
+    if (fireButton) fireButton.disabled = true;
 
     if (jetIsGltf) {
       gltfMaterials = raptor.userData.materials;
@@ -185,6 +194,11 @@ async function init() {
         modeBadge.classList.add('mode-badge--warn');
         modeBadge.title = detail;
       }
+    }
+
+    if (raptor && jetIsGltf) {
+      missileInventory = collectMissileInventory(raptor);
+      syncFireButton();
     }
 
     const ports = jet.enginePorts || [];
@@ -248,9 +262,9 @@ function isAfterburnerBursting() {
 }
 
 function getAfterburnerLevel() {
-  if (isAfterburnerBursting()) return 1;
   const visuals = getSystemVisuals();
-  return Math.min(1, throttle * visuals.abMult);
+  const burstBoost = isAfterburnerBursting() ? 0.48 : 0;
+  return Math.min(0.88, throttle * visuals.abMult + burstBoost);
 }
 
 function triggerAfterburnerBurst() {
@@ -264,8 +278,8 @@ function triggerAfterburnerBurst() {
 
 function updateParticles(dt) {
   const positions = particles.geometry.attributes.position.array;
-  const intensity = getAfterburnerLevel() * 0.85;
-  particles.material.opacity = intensity * 0.55;
+  const intensity = getAfterburnerLevel() * 0.75;
+  particles.material.opacity = intensity * 0.42;
 
   const emits = getExhaustEmits();
 
@@ -418,6 +432,7 @@ if (weaponsToggle) {
   weaponsToggle.addEventListener('change', () => {
     if (!weaponsController) return;
     weaponsController.setDeployed(weaponsToggle.checked);
+    syncFireButton();
   });
 }
 
@@ -519,13 +534,13 @@ function getSystemVisuals() {
     return { abMult: 0.32, exposure: 0.86, bloom: 0.09, radarSpeed: 0.55 };
   }
   if (activeSystem === 'supercruise') {
-    const boost = performance.now() < supercruiseUntil ? 1.2 : 1;
-    return { abMult: 1.15 * boost, exposure: 1.12, bloom: 0.3, radarSpeed: 1.35 };
+    const boost = performance.now() < supercruiseUntil ? 1.08 : 1;
+    return { abMult: 1.02 * boost, exposure: 1.02, bloom: 0.2, radarSpeed: 1.35 };
   }
   if (activeSystem === 'thrust') {
-    return { abMult: 1.05, exposure: BASE_EXPOSURE, bloom: BASE_BLOOM, radarSpeed: 1 };
+    return { abMult: 0.95, exposure: BASE_EXPOSURE, bloom: 0.18, radarSpeed: 1 };
   }
-  return { abMult: 1, exposure: BASE_EXPOSURE, bloom: BASE_BLOOM, radarSpeed: 1 };
+  return { abMult: 0.92, exposure: BASE_EXPOSURE, bloom: 0.18, radarSpeed: 1 };
 }
 
 function toggleGear() {
@@ -552,9 +567,183 @@ function toggleWeapons() {
   weaponsController.toggle();
   if (weaponsToggle) weaponsToggle.checked = weaponsController.isDeployed;
   modeBadge.textContent = weaponsController.isDeployed ? 'WEAPONS OUT' : 'WEAPONS STOWED';
+  syncFireButton();
   setTimeout(() => {
     modeBadge.textContent = 'INTERACTIVE';
   }, 900);
+}
+
+function collectMissileInventory(model) {
+  const found = [];
+  model.updateMatrixWorld(true);
+
+  const isRocketMesh = (mesh) => {
+    const mat = mesh.material;
+    const names = Array.isArray(mat) ? mat.map((m) => m?.name || '') : [mat?.name || ''];
+    return names.some((n) => /rocket/i.test(n));
+  };
+
+  const allMeshesMatch = (root) => {
+    let anyMesh = false;
+    let ok = true;
+    root.traverse((c) => {
+      if (!ok || !c.isMesh) return;
+      anyMesh = true;
+      if (!isRocketMesh(c)) ok = false;
+    });
+    return anyMesh && ok;
+  };
+
+  const rocketRootFor = (mesh) => {
+    // Start at the mesh, climb while the whole subtree is still "rocket-only".
+    let root = mesh;
+    while (root.parent && root.parent !== model) {
+      if (!allMeshesMatch(root.parent)) break;
+      root = root.parent;
+    }
+    return root;
+  };
+
+  model.traverse((child) => {
+    if (!child.isMesh) return;
+    if (!isRocketMesh(child)) return;
+    const root = rocketRootFor(child);
+    // Safety: never allow the entire aircraft root to be treated as a missile.
+    if (root === model) return;
+    if (root.parent === null) return;
+    if (!found.find((x) => x.root === root)) found.push({ root, fired: false });
+  });
+  return found;
+}
+
+function syncFireButton() {
+  if (!fireButton) return;
+  const bayOpen = !!weaponsController?.isDeployed;
+  const hasAmmo = missileInventory.some((m) => !m.fired);
+  fireButton.disabled = !(bayOpen && hasAmmo);
+  fireButton.title = !bayOpen ? 'Open weapons bay first' : hasAmmo ? 'Fire' : 'Out of missiles';
+  if (reloadMissilesButton) {
+    reloadMissilesButton.disabled = missileInventory.length === 0;
+    reloadMissilesButton.title =
+      missileInventory.length === 0 ? 'No missiles found on this model' : 'Reload missiles';
+  }
+}
+
+function reloadMissiles() {
+  // Restore all in-bay missiles and clear launched ones.
+  for (const m of missileInventory) {
+    m.fired = false;
+    if (m.root) m.root.visible = true;
+  }
+  // Remove active projectiles immediately.
+  for (let i = missileProjectiles.length - 1; i >= 0; i--) {
+    const p = missileProjectiles[i];
+    scene.remove(p.obj);
+    scene.remove(p.trail);
+    p.trail.geometry.dispose();
+    p.trail.material.dispose();
+    missileProjectiles.splice(i, 1);
+  }
+  syncFireButton();
+  flashModeBadge('RELOADED', 900);
+}
+
+function createMissileTrail() {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(2 * 3), 3));
+  const mat = new THREE.LineBasicMaterial({
+    color: 0xffaa55,
+    transparent: true,
+    opacity: 0.85,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const line = new THREE.Line(geo, mat);
+  line.frustumCulled = false;
+  return line;
+}
+
+function updateMissileProjectiles(dt) {
+  for (let i = missileProjectiles.length - 1; i >= 0; i--) {
+    const p = missileProjectiles[i];
+    p.age += dt;
+    p.obj.position.addScaledVector(p.dir, p.speed * dt);
+    p.speed *= 1.01;
+
+    const head = p.obj.position;
+    const tail = _tmpV.copy(head).addScaledVector(p.dir, -0.65);
+    const pos = p.trail.geometry.attributes.position;
+    pos.setXYZ(0, head.x, head.y, head.z);
+    pos.setXYZ(1, tail.x, tail.y, tail.z);
+    pos.needsUpdate = true;
+    p.trail.material.opacity = Math.max(0, 0.9 - p.age / p.life);
+
+    if (p.age >= p.life) {
+      scene.remove(p.obj);
+      scene.remove(p.trail);
+      p.trail.geometry.dispose();
+      p.trail.material.dispose();
+      missileProjectiles.splice(i, 1);
+    }
+  }
+}
+
+function fireOneMissile() {
+  if (!raptor || !jetIsGltf) return;
+  if (!weaponsController?.isDeployed) {
+    flashModeBadge('OPEN BAY', 900);
+    return;
+  }
+  if (performance.now() < fireCooldownUntil) return;
+
+  const slot = missileInventory.find((m) => !m.fired);
+  if (!slot) return;
+
+  // Final safety check: never hide the full aircraft.
+  if (slot.root === raptor) return;
+
+  slot.fired = true;
+  slot.root.visible = false;
+
+  const clone = slot.root.clone(true);
+  slot.root.updateWorldMatrix(true, false);
+  slot.root.getWorldPosition(_tmpV);
+  slot.root.getWorldQuaternion(_tmpQ);
+  slot.root.getWorldScale(_tmpS);
+  clone.position.copy(_tmpV);
+  clone.quaternion.copy(_tmpQ);
+  clone.scale.copy(_tmpS);
+  scene.add(clone);
+
+  const axes = resolveJetAxes(raptor);
+  const dir = axes.forward.clone().normalize();
+  dir.x += (Math.random() - 0.5) * 0.02;
+  dir.y += (Math.random() - 0.5) * 0.02;
+  dir.z += (Math.random() - 0.5) * 0.02;
+  dir.normalize();
+
+  const trail = createMissileTrail();
+  scene.add(trail);
+
+  missileProjectiles.push({
+    obj: clone,
+    trail,
+    dir,
+    speed: 12 + Math.random() * 4,
+    age: 0,
+    life: 2.2,
+  });
+
+  fireCooldownUntil = performance.now() + 350;
+  flashModeBadge('FIRE', 450);
+  syncFireButton();
+}
+
+if (fireButton) {
+  fireButton.addEventListener('click', () => fireOneMissile());
+}
+if (reloadMissilesButton) {
+  reloadMissilesButton.addEventListener('click', () => reloadMissiles());
 }
 
 document.querySelectorAll('.weather').forEach((btn) => {
@@ -753,12 +942,9 @@ function animate() {
   const ab = getAfterburnerLevel();
   if (afterburner) setAfterburnerIntensity(afterburner, ab);
 
-  const bursting = isAfterburnerBursting();
-  renderer.toneMappingExposure = bursting ? BASE_EXPOSURE : visuals.exposure;
+  renderer.toneMappingExposure = visuals.exposure;
   if (post?.bloom) {
-    const bloomBase = bursting ? BASE_BLOOM : visuals.bloom;
-    post.bloom.strength =
-      bloomBase + ab * (bursting || activeSystem !== 'stealth' ? 0.22 : 0.06);
+    post.bloom.strength = visuals.bloom + ab * 0.16;
   }
 
   syncContextualSpeed();
@@ -784,6 +970,7 @@ function animate() {
     cloudSea.position.z = Math.sin(t * 0.1) * 1.5;
   }
 
+  updateMissileProjectiles(dt);
   updateParticles(dt);
   drawRadar();
 
